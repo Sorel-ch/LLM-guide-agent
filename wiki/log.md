@@ -15,3 +15,6 @@
 | 2026-09-28 | pois/千岛湖.md | lint | 因票价口径冲突，valid_until 由 2026-12-27 收紧至 2026-10-28 |
 | 2026-09-28 | pois/千岛湖.md | ingest | 秘塔正文快照补入预约流程、特殊人群须窗口核验、周五免票易售罄等细节 |
 | 2026-09-28 | (全部) | lint | 跑 scripts/lint_wiki.py：7 页通过 |
+| 2026-09-28 | cities/* (1732 页) | ingest | Wikivoyage 批量种子页：zhwikivoyage 2026-09-01 转储，境内 1732 条目、内嵌 POI 20278 条；每页 wikitext 落 raw/wikivoyage/，全部标 coord_status=unverified，未调用高德 |
+| 2026-09-28 | index.md | ingest | 新增"种子页"区块登记 1732 条链接（含括号消歧标题需百分号编码） |
+| 2026-09-28 | (全部) | lint | 批量导入后 lint 通过（1739 页）；坐标覆盖 58%、票价 23%、营业时间 27%，按"用到哪核到哪"策略暂不补 |

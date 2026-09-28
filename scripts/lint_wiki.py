@@ -7,6 +7,7 @@ import re
 import sys
 from datetime import date
 from pathlib import Path
+from urllib.parse import unquote
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -48,6 +49,8 @@ def main() -> int:
         for target in re.findall(r"\]\(([^)#\s]+\.(?:md|json))", text):
             if target.startswith(("http://", "https://")):
                 continue
+            # 链接里的括号被百分号编码（文件名含 "(桂林)" 这类消歧后缀）
+            target = unquote(target)
             resolved = (page.parent / target).resolve()
             if resolved.exists():
                 linked.add(resolved)

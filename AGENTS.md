@@ -37,6 +37,24 @@
 3. 实时决策（今天去哪、带不带伞）永远以 `get_amap_weather`、
    `get_amap_direction` 的即时结果为准，wiki 只提供背景知识。
 
+## 批量导入（外部知识库冷启动）
+
+`scripts/wikivoyage_import.py` 从 zhwikivoyage 转储批量生成种子页。约定见
+`schema/schema.md` 的"批量种子页"一节，要点：
+
+- 转储放 `.cache/`（已 gitignore），每页 wikitext 单独落 `raw/wikivoyage/` 快照，
+  条目以表格内嵌在城市页，**不逐个建 POI 页**。
+- 种子页带 `coord_status: unverified`，坐标不得直接用于规划；`valid_until` =
+  转储日期 + 90 天，所以它们天生处于"待核实"，这是设计而非缺陷。
+- **高德/秘塔配额有限：只在某页面被真正使用时才现场核实并顺手升级该条目，
+  不要为了"把数据补全"而批量调 API。**
+
+```
+E:/code/MCP-test/.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --stats
+E:/code/MCP-test/.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --scope china --dry-run --limit 20
+E:/code/MCP-test/.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --scope china --exclude 杭州市
+```
+
 ## Lint（核查）
 
 触发：用户要求"检查知识库"，或某页面被 Query 使用时发现存疑字段。

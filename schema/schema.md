@@ -37,5 +37,20 @@ valid_until: 2026-12-27         # 过期后 Query 时必须现场核实
   错
   - `[^3]: raw/amap/...driving.json（对照公交方案见 ...transit.json）`
 - `wiki/index.md`、`wiki/log.md` 是元文件，不需要 frontmatter。
+
+## 批量种子页（Wikivoyage 等外部知识库转化而来）
+
+由 `scripts/wikivoyage_import.py` 生成的页面额外遵守：
+
+- frontmatter 必填 `upstream: wikivoyage` 与 `coord_status: unverified`；
+  正文开头保留 CC BY-SA 署名块。
+- **不逐个创建 POI 页**：外部条目内的景点/餐厅以表格形式留在城市页的"内嵌 POI"小节。
+  某条目被 Query 真正用到、或需要补门票/坐标时，才提升为 `wiki/pois/` 独立页，
+  提升时删掉表格里对应行并在 `log.md` 记一次"promote"。
+- `valid_until` 取上游转储日期 + 90 天，因此种子页天然处于"已过期/待核实"状态：
+  这是设计意图，不视为错误，也不批量补正。
+- 种子页的坐标**不得**直接用于路线规划；规划时须先用 `get_amap_poi_search` 复核，
+  复核后将 `coord_status` 改为 `verified` 并在脚注补上高德快照路径。
+- 高德/秘塔配额有限：只在被实际使用时核实，不要为提升数据质量而主动批量调用。
 - 自动核查：`python scripts/lint_wiki.py`（检查 frontmatter 字段、过期 valid_until、
   断链、脚注路径是否存在、引用与定义是否匹配、孤立页面）。

@@ -1,0 +1,39 @@
+=== geo_tags 表结构 ===
+CREATE TABLE `geo_tags` (
+  `gt_id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `gt_page_id` int(10) unsigned NOT NULL,
+  `gt_globe` varbinary(32) NOT NULL,
+  `gt_primary` tinyint(1) NOT NULL,
+  `gt_lat` decimal(11,8) DEFAULT NULL,
+  `gt_lon` decimal(11,8) DEFAULT NULL,
+  `gt_dim` int(11) DEFAULT NULL,
+  `gt_type` varbinary(32) DEFAULT NULL,
+  `gt_name` varbinary(255) DEFAULT NULL,
+  `gt_country` binary(2) DEFAULT NULL,
+  `gt_region` varbinary(3) DEFAULT NULL,
+  `gt_lat_int` smallint(6) DEFAULT NULL,
+  `gt_lon_int` smallint(6) DEFAULT NULL,
+  PRIMARY KEY (`gt_id`),
+  KEY `gt_page_primary` (`gt_page_id`,`gt_primary`),
+  KEY `gt_page_id_id` (`gt_page_id`,`gt_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=1270505 DEFAULT CHARSET=binary ROW_FORMAT=COMPRESSED;
+
+=== geo INSERT 片段 ===
+INSERT INTO `geo_tags` VALUES (175836,3979,'earth',1,29.41685867,117.76982880,NULL,NULL,NULL,NULL,NULL,NULL,NULL),(468998,8700,'earth',1,22.66097778,121.50553333,NULL,NULL,NULL,NULL,NULL,NULL,NULL),(556245,11370,'earth',1,-33.93691667,151.16794722,NULL,NULL,NULL,NULL,NULL,NULL,NULL),(885749,14466,'earth',1,19.42204333,-99.07957833,NULL,NULL,NULL,NULL,NULL,NULL,NULL),(975316,16848,'earth',1,43.11534119,131.88493347,NULL,NULL,NULL,NULL,NULL,NULL,NULL),(1025890,1875,'earth',1,27.43273000,114.03259000,1000,NULL,NULL,NULL,NULL,NULL,NULL),(1026271,8206,'earth',1,35.80044500,116.97310600,1000,NULL,NU
+
+=== categorylinks 表结构 ===
+CREATE TABLE `categorylinks` (
+  `cl_from` int(10) unsigned NOT NULL DEFAULT 0,
+  `cl_sortkey` varbinary(230) NOT NULL DEFAULT '',
+  `cl_sortkey_prefix` varbinary(255) NOT NULL DEFAULT '',
+  `cl_timestamp` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `cl_type` enum('page','subcat','file') NOT NULL DEFAULT 'page',
+  `cl_collation_id` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `cl_target_id` bigint(20) unsigned NOT NULL,
+  PRIMARY KEY (`cl_from`,`cl_target_id`),
+  KEY `cl_sortkey_id` (`cl_target_id`,`cl_type`,`cl_sortkey`,`cl_from`),
+  KEY `cl_timestamp_id` (`cl_target_id`,`cl_timestamp`)
+) ENGINE=InnoDB DEFAULT CHARSET=binary ROW_FORMAT=COMPRESSED;
+
+=== catlinks INSERT 片段 ===
+INSERT INTO `categorylinks` VALUES (1,'首页','','2025-02-17 20:38:28','page',1,10639),(5,'REVI C.','','2025-02-17 20:38:28','page',1,3551),(5,'3\nREVI C.','3','2025-02-17 20:38:28','page',1,3552),(5,'N\nREVI C.','N','2025-02-17 20:38:28','page',1,3553),(5,'REVI C.','','2025-02-17 20:38:28','page',1,3554),(5,'REVI C.','','2025-02-17 20:38:28','page',1,3555),(5,'REVI C.','','2025-02-17 20:38:28','page',1,68874),(6,'REVI C.','','2025-02-17 20:38:28','page',1,68874),(9,'N\nEBE123','N','2025-02-17 20:3
