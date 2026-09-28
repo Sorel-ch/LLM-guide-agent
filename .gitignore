@@ -4,3 +4,7 @@ __pycache__/
 .venv/
 data/
 .cache/
+temp files: ignore intermediate analysis outputs written during bulk import
+.cache/
+_*.txt
+_*.json
