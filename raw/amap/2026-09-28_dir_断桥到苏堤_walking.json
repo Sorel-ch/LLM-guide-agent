@@ -1,0 +1,89 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "mode": "walking",
+    "origin": "120.151347,30.258151",
+    "destination": "120.137960,30.243880",
+    "strategy": null,
+    "alternative_route": null
+  },
+  "data": {
+    "status": "1",
+    "info": "OK",
+    "infocode": "10000",
+    "count": "1",
+    "route": {
+      "origin": "120.151347,30.258151",
+      "destination": "120.137960,30.243880",
+      "paths": [
+        {
+          "distance": "2950",
+          "cost": {
+            "duration": "2360"
+          },
+          "steps": [
+            {
+              "instruction": "向西北步行3米右转",
+              "orientation": "西北",
+              "road_name": "",
+              "step_distance": "3",
+              "cost": {
+                "duration": "2"
+              }
+            },
+            {
+              "instruction": "沿西湖景区环湖绿道向东北步行155米左转",
+              "orientation": "东北",
+              "road_name": "西湖景区环湖绿道",
+              "step_distance": "155",
+              "cost": {
+                "duration": "124"
+              }
+            },
+            {
+              "instruction": "沿北山街向西南步行1258米向左前方行走",
+              "orientation": "西南",
+              "road_name": "北山街",
+              "step_distance": "1258",
+              "cost": {
+                "duration": "1006"
+              }
+            },
+            {
+              "instruction": "沿北山街向西南步行593米",
+              "orientation": "西南",
+              "road_name": "北山街",
+              "step_distance": "593",
+              "cost": {
+                "duration": "474"
+              }
+            },
+            {
+              "instruction": "向西步行54米左转",
+              "orientation": "西",
+              "road_name": "",
+              "step_distance": "54",
+              "cost": {
+                "duration": "43"
+              }
+            },
+            {
+              "instruction": "沿苏堤向南步行887米到达目的地",
+              "orientation": "南",
+              "road_name": "苏堤",
+              "step_distance": "887",
+              "cost": {
+                "duration": "710"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "meta": {
+    "source": "AMap API"
+  }
+}

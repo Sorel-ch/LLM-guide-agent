@@ -1,0 +1,425 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "mode": "driving",
+    "origin": "120.121358,30.222692",
+    "destination": "120.101406,30.240826",
+    "strategy": null,
+    "alternative_route": null
+  },
+  "data": {
+    "status": "1",
+    "info": "OK",
+    "infocode": "10000",
+    "count": "2",
+    "route": {
+      "origin": "120.121358,30.222692",
+      "destination": "120.101406,30.240826",
+      "taxi_cost": "20",
+      "paths": [
+        {
+          "distance": "6876",
+          "restriction": "0",
+          "cost": {
+            "duration": "1653",
+            "tolls": "0",
+            "toll_distance": "0",
+            "traffic_lights": "3"
+          },
+          "steps": [
+            {
+              "instruction": "向西南行驶244米向右前方行驶",
+              "orientation": "西南",
+              "step_distance": "244",
+              "cost": {
+                "duration": "96",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿满觉陇路向西行驶337米右转",
+              "orientation": "西",
+              "road_name": "满觉陇路",
+              "step_distance": "337",
+              "cost": {
+                "duration": "63",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿满觉陇路向西行驶866米右转",
+              "orientation": "西",
+              "road_name": "满觉陇路",
+              "step_distance": "866",
+              "cost": {
+                "duration": "147",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿龙井路向东北行驶1.3千米向右前方行驶",
+              "orientation": "东北",
+              "road_name": "龙井路",
+              "step_distance": "1252",
+              "cost": {
+                "duration": "188",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿龙井路向东行驶591米左转",
+              "orientation": "东",
+              "road_name": "龙井路",
+              "step_distance": "591",
+              "cost": {
+                "duration": "111",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "1"
+              }
+            },
+            {
+              "instruction": "沿双峰路向西北行驶596米直行进入隧道",
+              "orientation": "西北",
+              "road_name": "双峰路",
+              "step_distance": "596",
+              "cost": {
+                "duration": "56",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿双峰路向北行驶670米向右前方行驶进入辅路",
+              "orientation": "北",
+              "road_name": "双峰路",
+              "step_distance": "670",
+              "cost": {
+                "duration": "50",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿双峰路向北行驶614米左转",
+              "orientation": "北",
+              "road_name": "双峰路",
+              "step_distance": "614",
+              "cost": {
+                "duration": "289",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "2"
+              }
+            },
+            {
+              "instruction": "沿灵隐路向西行驶532米右转",
+              "orientation": "西",
+              "road_name": "灵隐路",
+              "step_distance": "532",
+              "cost": {
+                "duration": "269",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿灵隐路向西北行驶169米左转",
+              "orientation": "西北",
+              "road_name": "灵隐路",
+              "step_distance": "169",
+              "cost": {
+                "duration": "56",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿灵隐支路向西南行驶119米右转",
+              "orientation": "西南",
+              "road_name": "灵隐支路",
+              "step_distance": "119",
+              "cost": {
+                "duration": "40",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿西山游步道向西北行驶37米左转",
+              "orientation": "西北",
+              "road_name": "西山游步道",
+              "step_distance": "37",
+              "cost": {
+                "duration": "26",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿天曹桥路向西南行驶503米右转",
+              "orientation": "西南",
+              "road_name": "天曹桥路",
+              "step_distance": "503",
+              "cost": {
+                "duration": "135",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "向西行驶346米到达目的地",
+              "orientation": "西",
+              "step_distance": "346",
+              "cost": {
+                "duration": "127",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            }
+          ]
+        },
+        {
+          "distance": "7506",
+          "restriction": "0",
+          "cost": {
+            "duration": "1695",
+            "tolls": "0",
+            "toll_distance": "0",
+            "traffic_lights": "4"
+          },
+          "steps": [
+            {
+              "instruction": "向西南行驶244米向右前方行驶",
+              "orientation": "西南",
+              "step_distance": "244",
+              "cost": {
+                "duration": "97",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿满觉陇路向西行驶130米左转调头",
+              "orientation": "西",
+              "road_name": "满觉陇路",
+              "step_distance": "130",
+              "cost": {
+                "duration": "66",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿满觉陇路向东行驶130米右转",
+              "orientation": "东",
+              "road_name": "满觉陇路",
+              "step_distance": "130",
+              "cost": {
+                "duration": "24",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿满觉陇路向东南行驶898米向右前方行驶",
+              "orientation": "东南",
+              "road_name": "满觉陇路",
+              "step_distance": "898",
+              "cost": {
+                "duration": "142",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿满觉陇路向东行驶974米左转",
+              "orientation": "东",
+              "road_name": "满觉陇路",
+              "step_distance": "974",
+              "cost": {
+                "duration": "259",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "1"
+              }
+            },
+            {
+              "instruction": "沿双峰路向西北行驶155米直行进入隧道",
+              "orientation": "西北",
+              "road_name": "双峰路",
+              "step_distance": "155",
+              "cost": {
+                "duration": "14",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿五老峰隧道途径双峰路向西北行驶2.0千米直行进入隧道",
+              "orientation": "西北",
+              "road_name": "五老峰隧道",
+              "step_distance": "1985",
+              "cost": {
+                "duration": "180",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "1"
+              }
+            },
+            {
+              "instruction": "沿双峰路向北行驶670米向右前方行驶进入辅路",
+              "orientation": "北",
+              "road_name": "双峰路",
+              "step_distance": "670",
+              "cost": {
+                "duration": "52",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿双峰路向北行驶614米左转",
+              "orientation": "北",
+              "road_name": "双峰路",
+              "step_distance": "614",
+              "cost": {
+                "duration": "291",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "2"
+              }
+            },
+            {
+              "instruction": "沿灵隐路向西行驶532米右转",
+              "orientation": "西",
+              "road_name": "灵隐路",
+              "step_distance": "532",
+              "cost": {
+                "duration": "181",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿灵隐路向西北行驶169米左转",
+              "orientation": "西北",
+              "road_name": "灵隐路",
+              "step_distance": "169",
+              "cost": {
+                "duration": "58",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿灵隐支路向西南行驶119米右转",
+              "orientation": "西南",
+              "road_name": "灵隐支路",
+              "step_distance": "119",
+              "cost": {
+                "duration": "39",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿西山游步道向西北行驶37米左转",
+              "orientation": "西北",
+              "road_name": "西山游步道",
+              "step_distance": "37",
+              "cost": {
+                "duration": "26",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "沿天曹桥路向西南行驶503米右转",
+              "orientation": "西南",
+              "road_name": "天曹桥路",
+              "step_distance": "503",
+              "cost": {
+                "duration": "138",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            },
+            {
+              "instruction": "向西行驶346米到达目的地",
+              "orientation": "西",
+              "step_distance": "346",
+              "cost": {
+                "duration": "128",
+                "tolls": "0",
+                "toll_distance": "0",
+                "toll_road": "",
+                "traffic_lights": "0"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "meta": {
+    "source": "AMap API"
+  }
+}

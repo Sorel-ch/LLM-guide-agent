@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "city": "330100",
+    "extensions": "base"
+  },
+  "data": {
+    "status": "1",
+    "count": "1",
+    "info": "OK",
+    "infocode": "10000",
+    "lives": [
+      {
+        "province": "浙江",
+        "city": "杭州市",
+        "adcode": "330100",
+        "weather": "多云",
+        "temperature": "27",
+        "winddirection": "东",
+        "windpower": "4",
+        "humidity": "84",
+        "reporttime": "2026-09-28 17:02:25",
+        "temperature_float": "27.0",
+        "humidity_float": "84.0"
+      }
+    ]
+  },
+  "meta": {
+    "source": "AMap API"
+  }
+}

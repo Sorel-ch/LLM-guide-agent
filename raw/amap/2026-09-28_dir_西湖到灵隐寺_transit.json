@@ -1,0 +1,1075 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "mode": "transit",
+    "origin": "120.121358,30.222692",
+    "destination": "120.101406,30.240826",
+    "strategy": null,
+    "alternative_route": null
+  },
+  "data": {
+    "status": "1",
+    "info": "OK",
+    "infocode": "10000",
+    "route": {
+      "origin": "120.121358,30.222692",
+      "destination": "120.101406,30.240826",
+      "distance": "3933",
+      "cost": {
+        "taxi_fee": "20"
+      },
+      "transits": [
+        {
+          "cost": {
+            "duration": "5305",
+            "transit_fee": "3.0"
+          },
+          "distance": "5220",
+          "walking_distance": "3927",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "120.120461,30.239626",
+                "distance": "2884",
+                "origin": "120.121216,30.221992",
+                "cost": {
+                  "duration": "3398"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行223米左转",
+                    "road": "",
+                    "distance": "223"
+                  },
+                  {
+                    "instruction": "步行140米直行上阶梯",
+                    "road": "",
+                    "distance": "140"
+                  },
+                  {
+                    "instruction": "步行155米出阶梯",
+                    "road": "",
+                    "distance": "155"
+                  },
+                  {
+                    "instruction": "步行574米左转",
+                    "road": "",
+                    "distance": "574"
+                  },
+                  {
+                    "instruction": "步行294米直行上阶梯",
+                    "road": "",
+                    "distance": "294"
+                  },
+                  {
+                    "instruction": "步行85米直行出阶梯",
+                    "road": "",
+                    "distance": "85"
+                  },
+                  {
+                    "instruction": "步行34米右转",
+                    "road": "",
+                    "distance": "34"
+                  },
+                  {
+                    "instruction": "沿龙井路步行528米左转",
+                    "road": "龙井路",
+                    "distance": "528"
+                  },
+                  {
+                    "instruction": "沿龙井路步行505米左转",
+                    "road": "龙井路",
+                    "distance": "505"
+                  },
+                  {
+                    "instruction": "沿梅灵北路步行346米到达上茅家埠",
+                    "road": "梅灵北路",
+                    "distance": "346"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "上茅家埠",
+                      "id": "900000029051072",
+                      "location": "120.120460,30.239622"
+                    },
+                    "arrival_stop": {
+                      "name": "灵隐东",
+                      "id": "900000029051063",
+                      "location": "120.108006,30.239236"
+                    },
+                    "name": "103路(六公园北站(地铁凤起路站)--九溪公交总站)",
+                    "id": "900000029051",
+                    "type": "普通公交线路",
+                    "distance": "1293",
+                    "cost": {
+                      "duration": "571"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "0620",
+                    "station_start_time": "0645",
+                    "end_time": "2140",
+                    "station_end_time": "2206",
+                    "via_num": "0",
+                    "via_stops": []
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "120.101456,30.240837",
+                "distance": "1043",
+                "origin": "120.108002,30.239237",
+                "cost": {
+                  "duration": "1336"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿梅灵北路步行149米右转",
+                    "road": "梅灵北路",
+                    "distance": "149"
+                  },
+                  {
+                    "instruction": "步行49米向左前方直行",
+                    "road": "",
+                    "distance": "49"
+                  },
+                  {
+                    "instruction": "沿天竺佛缘步行街步行40米右转",
+                    "road": "天竺佛缘步行街",
+                    "distance": "40"
+                  },
+                  {
+                    "instruction": "沿天竺路步行167米左转",
+                    "road": "天竺路",
+                    "distance": "167"
+                  },
+                  {
+                    "instruction": "步行65米向右前方直行",
+                    "road": "",
+                    "distance": "65"
+                  },
+                  {
+                    "instruction": "步行124米左转",
+                    "road": "",
+                    "distance": "124"
+                  },
+                  {
+                    "instruction": "沿灵隐支路步行289米右转",
+                    "road": "灵隐支路",
+                    "distance": "289"
+                  },
+                  {
+                    "instruction": "步行54米右转",
+                    "road": "",
+                    "distance": "54"
+                  },
+                  {
+                    "instruction": "步行36米左转",
+                    "road": "",
+                    "distance": "36"
+                  },
+                  {
+                    "instruction": "步行70米到达目的地",
+                    "road": "",
+                    "distance": "70"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "cost": {
+            "duration": "5256",
+            "transit_fee": "5.0"
+          },
+          "distance": "8726",
+          "walking_distance": "2421",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "120.113106,30.220669",
+                "distance": "1308",
+                "origin": "120.121216,30.221992",
+                "cost": {
+                  "duration": "1452"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行442米上阶梯",
+                    "road": "",
+                    "distance": "442"
+                  },
+                  {
+                    "instruction": "步行24米右转出阶梯",
+                    "road": "",
+                    "distance": "24"
+                  },
+                  {
+                    "instruction": "沿满觉陇路步行842米到达茶博龙井总站",
+                    "road": "满觉陇路",
+                    "distance": "842"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "茶博龙井总站",
+                      "id": "330100013291002",
+                      "location": "120.113106,30.220669"
+                    },
+                    "arrival_stop": {
+                      "name": "黄泥岭",
+                      "id": "330100013291050",
+                      "location": "120.123798,30.244128"
+                    },
+                    "name": "27路(茶博龙井总站--岳王路)",
+                    "id": "330100013291",
+                    "type": "普通公交线路",
+                    "distance": "4233",
+                    "cost": {
+                      "duration": "1728"
+                    },
+                    "bus_time_tips": "末班车预计19:30到站",
+                    "bustimetag": "1",
+                    "start_time": "0625",
+                    "station_start_time": "0625",
+                    "end_time": "1930",
+                    "station_end_time": "1930",
+                    "via_num": "7",
+                    "via_stops": [
+                      {
+                        "name": "龙井茶室",
+                        "id": "330100013291003",
+                        "location": "120.111858,30.221346"
+                      },
+                      {
+                        "name": "龙井寺",
+                        "id": "330100013291004",
+                        "location": "120.112274,30.222401"
+                      },
+                      {
+                        "name": "南天竺",
+                        "id": "330100013291005",
+                        "location": "120.115867,30.226882"
+                      },
+                      {
+                        "name": "外鸡笼山",
+                        "id": "330100013291057",
+                        "location": "120.119420,30.228237"
+                      },
+                      {
+                        "name": "双峰",
+                        "id": "330100013291054",
+                        "location": "120.123741,30.231692"
+                      },
+                      {
+                        "name": "浙江宾馆",
+                        "id": "330100013291053",
+                        "location": "120.126199,30.235457"
+                      },
+                      {
+                        "name": "茅家埠",
+                        "id": "330100013291055",
+                        "location": "120.124440,30.238802"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "120.123909,30.243502",
+                "distance": "70",
+                "origin": "120.123795,30.244127",
+                "cost": {
+                  "duration": "64"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿龙井路步行70米到达黄泥岭",
+                    "road": "龙井路",
+                    "distance": "70"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "黄泥岭",
+                      "id": "900000029051068",
+                      "location": "120.123905,30.243500"
+                    },
+                    "arrival_stop": {
+                      "name": "灵隐东",
+                      "id": "900000029051063",
+                      "location": "120.108006,30.239236"
+                    },
+                    "name": "103路(六公园北站(地铁凤起路站)--九溪公交总站)",
+                    "id": "900000029051",
+                    "type": "普通公交线路",
+                    "distance": "2072",
+                    "cost": {
+                      "duration": "676"
+                    },
+                    "bus_time_tips": "预计20:14到站",
+                    "bustimetag": "3",
+                    "start_time": "0620",
+                    "station_start_time": "0644",
+                    "end_time": "2140",
+                    "station_end_time": "2205",
+                    "via_num": "1",
+                    "via_stops": [
+                      {
+                        "name": "上茅家埠",
+                        "id": "900000029051072",
+                        "location": "120.120460,30.239622"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "120.101456,30.240837",
+                "distance": "1043",
+                "origin": "120.108002,30.239237",
+                "cost": {
+                  "duration": "1336"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿梅灵北路步行149米右转",
+                    "road": "梅灵北路",
+                    "distance": "149"
+                  },
+                  {
+                    "instruction": "步行49米向左前方直行",
+                    "road": "",
+                    "distance": "49"
+                  },
+                  {
+                    "instruction": "沿天竺佛缘步行街步行40米右转",
+                    "road": "天竺佛缘步行街",
+                    "distance": "40"
+                  },
+                  {
+                    "instruction": "沿天竺路步行167米左转",
+                    "road": "天竺路",
+                    "distance": "167"
+                  },
+                  {
+                    "instruction": "步行65米向右前方直行",
+                    "road": "",
+                    "distance": "65"
+                  },
+                  {
+                    "instruction": "步行124米左转",
+                    "road": "",
+                    "distance": "124"
+                  },
+                  {
+                    "instruction": "沿灵隐支路步行289米右转",
+                    "road": "灵隐支路",
+                    "distance": "289"
+                  },
+                  {
+                    "instruction": "步行54米右转",
+                    "road": "",
+                    "distance": "54"
+                  },
+                  {
+                    "instruction": "步行36米左转",
+                    "road": "",
+                    "distance": "36"
+                  },
+                  {
+                    "instruction": "步行70米到达目的地",
+                    "road": "",
+                    "distance": "70"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "cost": {
+            "duration": "5228",
+            "transit_fee": "3.0"
+          },
+          "distance": "7033",
+          "walking_distance": "3687",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "120.132019,30.218815",
+                "distance": "1873",
+                "origin": "120.121216,30.221992",
+                "cost": {
+                  "duration": "2236"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行442米上阶梯",
+                    "road": "",
+                    "distance": "442"
+                  },
+                  {
+                    "instruction": "步行24米左转出阶梯",
+                    "road": "",
+                    "distance": "24"
+                  },
+                  {
+                    "instruction": "沿满觉陇路步行66米向右前方直行",
+                    "road": "满觉陇路",
+                    "distance": "66"
+                  },
+                  {
+                    "instruction": "沿满觉陇路步行59米左转上阶梯",
+                    "road": "满觉陇路",
+                    "distance": "59"
+                  },
+                  {
+                    "instruction": "步行68米直行出阶梯",
+                    "road": "",
+                    "distance": "68"
+                  },
+                  {
+                    "instruction": "步行124米向左前方直行",
+                    "road": "",
+                    "distance": "124"
+                  },
+                  {
+                    "instruction": "步行22米右转",
+                    "road": "",
+                    "distance": "22"
+                  },
+                  {
+                    "instruction": "步行61米左转",
+                    "road": "",
+                    "distance": "61"
+                  },
+                  {
+                    "instruction": "步行67米左转上阶梯",
+                    "road": "",
+                    "distance": "67"
+                  },
+                  {
+                    "instruction": "步行41米左转出阶梯",
+                    "road": "",
+                    "distance": "41"
+                  },
+                  {
+                    "instruction": "沿满觉陇路步行845米右转",
+                    "road": "满觉陇路",
+                    "distance": "845"
+                  },
+                  {
+                    "instruction": "沿满觉陇路步行54米到达四眼井",
+                    "road": "满觉陇路",
+                    "distance": "54"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "四眼井",
+                      "id": "900000047262008",
+                      "location": "120.132011,30.218803"
+                    },
+                    "arrival_stop": {
+                      "name": "立马回头",
+                      "id": "900000047262021",
+                      "location": "120.115914,30.242813"
+                    },
+                    "name": "180路(钱江湾花园总站--金色蓝庭总站)",
+                    "id": "900000047262",
+                    "type": "普通公交线路",
+                    "distance": "3346",
+                    "cost": {
+                      "duration": "1006"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "0600",
+                    "station_start_time": "0621",
+                    "end_time": "2200",
+                    "station_end_time": "2221",
+                    "via_num": "1",
+                    "via_stops": [
+                      {
+                        "name": "里鸡笼山",
+                        "id": "900000047262009",
+                        "location": "120.119421,30.229318"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "120.101456,30.240837",
+                "distance": "1814",
+                "origin": "120.115913,30.242813",
+                "cost": {
+                  "duration": "1986"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿双峰路步行153米左转",
+                    "road": "双峰路",
+                    "distance": "153"
+                  },
+                  {
+                    "instruction": "沿灵隐路步行532米向左前方直行",
+                    "road": "灵隐路",
+                    "distance": "532"
+                  },
+                  {
+                    "instruction": "沿灵竺路步行396米向右前方直行",
+                    "road": "灵竺路",
+                    "distance": "396"
+                  },
+                  {
+                    "instruction": "沿灵竺路步行105米右转",
+                    "road": "灵竺路",
+                    "distance": "105"
+                  },
+                  {
+                    "instruction": "沿西山游步道步行68米左转",
+                    "road": "西山游步道",
+                    "distance": "68"
+                  },
+                  {
+                    "instruction": "沿灵隐支路步行400米右转",
+                    "road": "灵隐支路",
+                    "distance": "400"
+                  },
+                  {
+                    "instruction": "步行54米右转",
+                    "road": "",
+                    "distance": "54"
+                  },
+                  {
+                    "instruction": "步行36米左转",
+                    "road": "",
+                    "distance": "36"
+                  },
+                  {
+                    "instruction": "步行70米到达目的地",
+                    "road": "",
+                    "distance": "70"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "cost": {
+            "duration": "5439",
+            "transit_fee": "5.0"
+          },
+          "distance": "6265",
+          "walking_distance": "2635",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "120.123749,30.231693",
+                "distance": "1522",
+                "origin": "120.121216,30.221992",
+                "cost": {
+                  "duration": "2169"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行223米左转",
+                    "road": "",
+                    "distance": "223"
+                  },
+                  {
+                    "instruction": "步行140米直行上阶梯",
+                    "road": "",
+                    "distance": "140"
+                  },
+                  {
+                    "instruction": "步行155米出阶梯",
+                    "road": "",
+                    "distance": "155"
+                  },
+                  {
+                    "instruction": "步行574米左转",
+                    "road": "",
+                    "distance": "574"
+                  },
+                  {
+                    "instruction": "步行294米直行上阶梯",
+                    "road": "",
+                    "distance": "294"
+                  },
+                  {
+                    "instruction": "步行85米直行出阶梯",
+                    "road": "",
+                    "distance": "85"
+                  },
+                  {
+                    "instruction": "步行34米左转",
+                    "road": "",
+                    "distance": "34"
+                  },
+                  {
+                    "instruction": "沿龙井路步行17米到达双峰",
+                    "road": "龙井路",
+                    "distance": "17"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "双峰",
+                      "id": "900000026193034",
+                      "location": "120.123746,30.231689"
+                    },
+                    "arrival_stop": {
+                      "name": "黄泥岭",
+                      "id": "900000026193008",
+                      "location": "120.123798,30.244128"
+                    },
+                    "name": "27B路(龙井村--岳王路)",
+                    "id": "900000026193",
+                    "type": "普通公交线路",
+                    "distance": "1558",
+                    "cost": {
+                      "duration": "1194"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0552",
+                    "end_time": "",
+                    "station_end_time": "2007",
+                    "via_num": "2",
+                    "via_stops": [
+                      {
+                        "name": "浙江宾馆",
+                        "id": "900000026193036",
+                        "location": "120.126199,30.235457"
+                      },
+                      {
+                        "name": "茅家埠",
+                        "id": "900000026193035",
+                        "location": "120.124440,30.238802"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "120.123909,30.243502",
+                "distance": "70",
+                "origin": "120.123795,30.244127",
+                "cost": {
+                  "duration": "64"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿龙井路步行70米到达黄泥岭",
+                    "road": "龙井路",
+                    "distance": "70"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "黄泥岭",
+                      "id": "900000029051068",
+                      "location": "120.123905,30.243500"
+                    },
+                    "arrival_stop": {
+                      "name": "灵隐东",
+                      "id": "900000029051063",
+                      "location": "120.108006,30.239236"
+                    },
+                    "name": "103路(六公园北站(地铁凤起路站)--九溪公交总站)",
+                    "id": "900000029051",
+                    "type": "普通公交线路",
+                    "distance": "2072",
+                    "cost": {
+                      "duration": "676"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "0620",
+                    "station_start_time": "0644",
+                    "end_time": "2140",
+                    "station_end_time": "2205",
+                    "via_num": "1",
+                    "via_stops": [
+                      {
+                        "name": "上茅家埠",
+                        "id": "900000029051072",
+                        "location": "120.120460,30.239622"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "120.101456,30.240837",
+                "distance": "1043",
+                "origin": "120.108002,30.239237",
+                "cost": {
+                  "duration": "1336"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿梅灵北路步行149米右转",
+                    "road": "梅灵北路",
+                    "distance": "149"
+                  },
+                  {
+                    "instruction": "步行49米向左前方直行",
+                    "road": "",
+                    "distance": "49"
+                  },
+                  {
+                    "instruction": "沿天竺佛缘步行街步行40米右转",
+                    "road": "天竺佛缘步行街",
+                    "distance": "40"
+                  },
+                  {
+                    "instruction": "沿天竺路步行167米左转",
+                    "road": "天竺路",
+                    "distance": "167"
+                  },
+                  {
+                    "instruction": "步行65米向右前方直行",
+                    "road": "",
+                    "distance": "65"
+                  },
+                  {
+                    "instruction": "步行124米左转",
+                    "road": "",
+                    "distance": "124"
+                  },
+                  {
+                    "instruction": "沿灵隐支路步行289米右转",
+                    "road": "灵隐支路",
+                    "distance": "289"
+                  },
+                  {
+                    "instruction": "步行54米右转",
+                    "road": "",
+                    "distance": "54"
+                  },
+                  {
+                    "instruction": "步行36米左转",
+                    "road": "",
+                    "distance": "36"
+                  },
+                  {
+                    "instruction": "步行70米到达目的地",
+                    "road": "",
+                    "distance": "70"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "cost": {
+            "duration": "5625",
+            "transit_fee": "4.0"
+          },
+          "distance": "9149",
+          "walking_distance": "2532",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "120.113106,30.220669",
+                "distance": "1308",
+                "origin": "120.121216,30.221992",
+                "cost": {
+                  "duration": "1452"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行442米上阶梯",
+                    "road": "",
+                    "distance": "442"
+                  },
+                  {
+                    "instruction": "步行24米右转出阶梯",
+                    "road": "",
+                    "distance": "24"
+                  },
+                  {
+                    "instruction": "沿满觉陇路步行842米到达茶博龙井总站",
+                    "road": "满觉陇路",
+                    "distance": "842"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "茶博龙井总站",
+                      "id": "330100013291002",
+                      "location": "120.113106,30.220669"
+                    },
+                    "arrival_stop": {
+                      "name": "洪春桥",
+                      "id": "330100013291051",
+                      "location": "120.123312,30.248503"
+                    },
+                    "name": "27路(茶博龙井总站--岳王路)",
+                    "id": "330100013291",
+                    "type": "普通公交线路",
+                    "distance": "4767",
+                    "cost": {
+                      "duration": "1923"
+                    },
+                    "bus_time_tips": "末班车预计19:30到站",
+                    "bustimetag": "1",
+                    "start_time": "0625",
+                    "station_start_time": "0625",
+                    "end_time": "1930",
+                    "station_end_time": "1930",
+                    "via_num": "8",
+                    "via_stops": [
+                      {
+                        "name": "龙井茶室",
+                        "id": "330100013291003",
+                        "location": "120.111858,30.221346"
+                      },
+                      {
+                        "name": "龙井寺",
+                        "id": "330100013291004",
+                        "location": "120.112274,30.222401"
+                      },
+                      {
+                        "name": "南天竺",
+                        "id": "330100013291005",
+                        "location": "120.115867,30.226882"
+                      },
+                      {
+                        "name": "外鸡笼山",
+                        "id": "330100013291057",
+                        "location": "120.119420,30.228237"
+                      },
+                      {
+                        "name": "双峰",
+                        "id": "330100013291054",
+                        "location": "120.123741,30.231692"
+                      },
+                      {
+                        "name": "浙江宾馆",
+                        "id": "330100013291053",
+                        "location": "120.126199,30.235457"
+                      },
+                      {
+                        "name": "茅家埠",
+                        "id": "330100013291055",
+                        "location": "120.124440,30.238802"
+                      },
+                      {
+                        "name": "黄泥岭",
+                        "id": "330100013291050",
+                        "location": "120.123798,30.244128"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "120.123672,30.249357",
+                "distance": "100",
+                "origin": "120.123314,30.248503",
+                "cost": {
+                  "duration": "91"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿灵隐路步行100米到达洪春桥",
+                    "road": "灵隐路",
+                    "distance": "100"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "洪春桥",
+                      "id": "330100013667086",
+                      "location": "120.123677,30.249360"
+                    },
+                    "arrival_stop": {
+                      "name": "灵隐公交总站",
+                      "id": "330100013667018",
+                      "location": "120.108346,30.242297"
+                    },
+                    "name": "7路(城站火车站(地铁A1口)--灵隐公交总站)",
+                    "id": "330100013667",
+                    "type": "普通公交线路",
+                    "distance": "1850",
+                    "cost": {
+                      "duration": "758"
+                    },
+                    "bus_time_tips": "预计20:06到站",
+                    "bustimetag": "3",
+                    "start_time": "0500",
+                    "station_start_time": "0527",
+                    "end_time": "2130",
+                    "station_end_time": "2204",
+                    "via_num": "2",
+                    "via_stops": [
+                      {
+                        "name": "九里松",
+                        "id": "330100013667087",
+                        "location": "120.119167,30.245919"
+                      },
+                      {
+                        "name": "石莲亭",
+                        "id": "330100013667092",
+                        "location": "120.112190,30.242996"
+                      }
+                    ]
+                  },
+                  {
+                    "departure_stop": {
+                      "name": "洪春桥",
+                      "id": "330100013672029",
+                      "location": "120.123566,30.249163"
+                    },
+                    "arrival_stop": {
+                      "name": "灵隐公交总站",
+                      "id": "330100013672016",
+                      "location": "120.108069,30.242400"
+                    },
+                    "name": "505路(工作日)(朝晖五区总站--灵隐公交总站)",
+                    "id": "330100013672",
+                    "type": "普通公交线路",
+                    "distance": "1842",
+                    "cost": {
+                      "duration": "758"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "3",
+                    "start_time": "",
+                    "station_start_time": "0800",
+                    "end_time": "",
+                    "station_end_time": "0800",
+                    "via_num": "1",
+                    "via_stops": [
+                      {
+                        "name": "九里松",
+                        "id": "330100013672030",
+                        "location": "120.119167,30.245919"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "120.101456,30.240837",
+                "distance": "1124",
+                "origin": "120.108345,30.242296",
+                "cost": {
+                  "duration": "1401"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行13米向右前方直行",
+                    "road": "",
+                    "distance": "13"
+                  },
+                  {
+                    "instruction": "步行98米右转",
+                    "road": "",
+                    "distance": "98"
+                  },
+                  {
+                    "instruction": "沿灵竺路步行280米向右前方直行",
+                    "road": "灵竺路",
+                    "distance": "280"
+                  },
+                  {
+                    "instruction": "沿灵竺路步行105米右转",
+                    "road": "灵竺路",
+                    "distance": "105"
+                  },
+                  {
+                    "instruction": "沿西山游步道步行68米左转",
+                    "road": "西山游步道",
+                    "distance": "68"
+                  },
+                  {
+                    "instruction": "沿灵隐支路步行400米右转",
+                    "road": "灵隐支路",
+                    "distance": "400"
+                  },
+                  {
+                    "instruction": "步行54米右转",
+                    "road": "",
+                    "distance": "54"
+                  },
+                  {
+                    "instruction": "步行36米左转",
+                    "road": "",
+                    "distance": "36"
+                  },
+                  {
+                    "instruction": "步行70米到达目的地",
+                    "road": "",
+                    "distance": "70"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "count": "5"
+  },
+  "meta": {
+    "source": "AMap API"
+  }
+}

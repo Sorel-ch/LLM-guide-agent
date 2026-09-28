@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "keywords": "杭州",
+    "city": null,
+    "type": null,
+    "location": null,
+    "datatype": "admin"
+  },
+  "data": {
+    "tips": [],
+    "status": "1",
+    "info": "OK",
+    "infocode": "10000",
+    "count": "0"
+  },
+  "meta": {
+    "source": "AMap API"
+  }
+}
