@@ -8,3 +8,6 @@ temp files: ignore intermediate analysis outputs written during bulk import
 .cache/
 _*.txt
 _*.json
+
+# 会话交接纪要（本地留存，不入库）
+session-notes/
