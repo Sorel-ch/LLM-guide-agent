@@ -28,6 +28,8 @@ _load_local_env()
 
 APP_NAME = "travel"
 DEFAULT_TIMEOUT = float(os.getenv("AMAP_HTTP_TIMEOUT", "10"))
+# cost 必带：v5 只有请求了 cost 才返回 paths[].time 与 transits[].cost.duration
+DEFAULT_SHOW_FIELDS = "cost,polyline,navi,tmc"
 LOG_LEVEL = os.getenv("MCP_LOG_LEVEL", "ERROR")
 METASO_MCP_URL = os.getenv("METASO_MCP_URL", "https://metaso.cn/api/mcp")
 METASO_API_KEY = os.getenv("METASO_API_KEY")
@@ -346,7 +348,7 @@ def get_amap_direction(
     # --- 骑行 (bicycling) 专用参数 ---
     alternative_route: int | None = None,
     # --- 通用参数 ---
-    show_fields: str | None = "polyline,navi,tmc",
+    show_fields: str | None = None,
     api_key: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -365,7 +367,8 @@ def get_amap_direction(
         waypoints: 驾车途经点，格式 "lon,lat;lon,lat"。
         alternative_route: 骑行备选路线数量 (1-3)。
         city1/city2: 公交起终点城市编码。
-        show_fields: 返回的详细字段，如 polyline(坐标串),navi(导航),tmc(路况)。
+        show_fields: 返回的详细字段，默认 "cost,polyline,navi,tmc"；
+              不显式传参即可拿到耗时（v5 只有带 cost 才返回 paths[].time）。
     """
     key = get_api_key(api_key)
     if not key:
@@ -394,7 +397,7 @@ def get_amap_direction(
     # --- 2. 根据不同模式动态处理参数 ---
     try:
         if mode == "driving":
-            params["show_fields"] = show_fields or "polyline,navi,tmc"
+            params["show_fields"] = show_fields or DEFAULT_SHOW_FIELDS
             if strategy is not None: params["strategy"] = strategy
             if waypoints: params["waypoints"] = waypoints
             if avoidpolygons: params["avoidpolygons"] = avoidpolygons
@@ -402,12 +405,11 @@ def get_amap_direction(
             if cartype in [0, 1, 2]: params["cartype"] = cartype
 
         elif mode == "walking":
-            # 步行通常只需要基础参数
-            if show_fields: params["show_fields"] = show_fields
+            params["show_fields"] = show_fields or DEFAULT_SHOW_FIELDS
 
         elif mode == "bicycling":
             # 骑行参数
-            params["show_fields"] = show_fields or "polyline,navi"
+            params["show_fields"] = show_fields or DEFAULT_SHOW_FIELDS
             if alternative_route is not None:
                 if 1 <= alternative_route <= 3:
                     params["alternative_route"] = alternative_route
@@ -421,10 +423,10 @@ def get_amap_direction(
             params["city1"] = city1
             params["city2"] = city2
             if nightflag in [0, 1]: params["nightflag"] = nightflag
-            if show_fields: params["show_fields"] = show_fields
+            params["show_fields"] = show_fields or DEFAULT_SHOW_FIELDS
 
         elif mode == "electrobike":
-            params["show_fields"] = show_fields or "polyline,navi"
+            params["show_fields"] = show_fields or DEFAULT_SHOW_FIELDS
 
     except Exception as e:
         return fail("INVALID_ARGUMENT", f"参数处理异常: {str(e)}")

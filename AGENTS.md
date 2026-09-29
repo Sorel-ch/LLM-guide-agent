@@ -73,6 +73,8 @@
 - 依赖环境变量 `AMAP_API_KEY`、`METASO_API_KEY`；两个 Key 统一放在
   仓库根 `.env`（已被 `.gitignore` 排除，且 `travel_mcp.py`
   启动时会自行加载，因此 `.mcp.json` 里不需要再写 Key）。
+- `get_amap_direction` 默认已带 `show_fields=cost,polyline,navi,tmc`：v5 只有请求 cost
+  才返回 `paths[].time` 与 `transits[].cost.duration`，**不要再为拿耗时重发一遍**。
   若 `METASO_API_KEY` 缺失导致 `ok=false`，可退回使用 agent 内置的 WebSearch/WebFetch，
   但必须在 `raw/web/` 快照头部注明实际使用的工具。
 
@@ -87,8 +89,14 @@
 
 ```
 .venv/Scripts/python.exe scripts/raw_snapshot.py <tool> <raw/相对路径> '<参数json>'
+.venv/Scripts/python.exe scripts/snapshot_digest.py <快照或目录>... -o .cache/digest.md
 .venv/Scripts/python.exe scripts/lint_wiki.py
 ```
+
+`snapshot_digest.py` 是读快照的唯一正确方式：它把秘塔返回里嵌套的 JSON 字符串解开、
+把高德的 `paths[].cost.duration` / `transits[].cost` 摊平成一行一条，写出 UTF-8 文件。
+**不要临时手写解析代码**——返回结构有四种且键名不直观（搜索结果是 lowercase `webpages`），
+现写必然踩两三次空跑。
 
 首次搭建：`uv venv .venv` 然后 `uv pip install --python .venv/Scripts/python.exe -r requirements.txt`
 （`requirements.txt` 里 `mcp` 锁 `<2`，因为 v2 把 `FastMCP` 改名成了 `MCPServer`）。
