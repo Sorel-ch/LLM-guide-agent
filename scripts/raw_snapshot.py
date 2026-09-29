@@ -11,33 +11,21 @@ import json
 import sys
 from pathlib import Path
 
-MCP_TEST_DIR = Path(r"E:/code/MCP-test")
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-def load_env() -> None:
-    import os
-
-    env_file = MCP_TEST_DIR / ".env"
-    if env_file.exists():
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            if "=" in line and not line.strip().startswith("#"):
-                k, _, v = line.partition("=")
-                os.environ.setdefault(k.strip(), v.strip())
+MCP_DIR = REPO_ROOT / "mcp"
 
 
 def main() -> int:
-    sys.path.insert(0, str(MCP_TEST_DIR))
-    load_env()
-    import mcp_test
+    sys.path.insert(0, str(MCP_DIR))
+    import travel_mcp
 
     tools = {
-        "get_amap_weather": mcp_test.get_amap_weather,
-        "get_amap_poi_search": mcp_test.get_amap_poi_search,
-        "get_amap_input_tips": mcp_test.get_amap_input_tips,
-        "get_amap_direction": mcp_test.get_amap_direction,
-        "metaso_web_search": mcp_test.metaso_web_search,
-        "metaso_web_reader": mcp_test.metaso_web_reader,
+        "get_amap_weather": travel_mcp.get_amap_weather,
+        "get_amap_poi_search": travel_mcp.get_amap_poi_search,
+        "get_amap_input_tips": travel_mcp.get_amap_input_tips,
+        "get_amap_direction": travel_mcp.get_amap_direction,
+        "metaso_web_search": travel_mcp.metaso_web_search,
+        "metaso_web_reader": travel_mcp.metaso_web_reader,
     }
 
     if len(sys.argv) < 2 or sys.argv[1] == "--list":

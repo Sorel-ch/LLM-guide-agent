@@ -50,9 +50,9 @@
   不要为了"把数据补全"而批量调 API。**
 
 ```
-E:/code/MCP-test/.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --stats
-E:/code/MCP-test/.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --scope china --dry-run --limit 20
-E:/code/MCP-test/.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --scope china --exclude 杭州市
+.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --stats
+.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --scope china --dry-run --limit 20
+.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --scope china --exclude 杭州市
 ```
 
 ## Lint（核查）
@@ -62,16 +62,16 @@ E:/code/MCP-test/.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .c
 1. 扫描 `wiki/` 中 `valid_until` 已过期的页面/字段。
 2. 用 MCP 工具重新核实，更新页面并在 `log.md` 记录"lint 修复"。
 3. 检查断链（互链指向不存在的文件）与孤立页面（无任何入链）。
-4. 上述 1–3 可先跑 `python scripts/lint_wiki.py` 自动扫一遍，再人工复核它标出的存疑项。
+4. 上述 1–3 可先跑 `.venv/Scripts/python.exe scripts/lint_wiki.py` 自动扫一遍，再人工复核它标出的存疑项。
    脚本每次 ingest 后都应运行，退出码非 0 表示仍有问题待修。
 
 ## MCP 工具约定
 
-- `.mcp.json` 中的 `travel` server 即 `E:/code/MCP-test/mcp_test.py`，
-  工具统一返回 `{ok, error_code, error_msg, query, data, meta}`；
+- `.mcp.json` 中的 `travel` server 即本仓库的 `mcp/travel_mcp.py`（FastMCP stdio，
+  用项目自己的 `.venv`），工具统一返回 `{ok, error_code, error_msg, query, data, meta}`；
   `ok=false` 时读 `error_msg` 并向用户说明，不要盲试参数。
 - 依赖环境变量 `AMAP_API_KEY`、`METASO_API_KEY`；两个 Key 统一放在
-  `E:/code/MCP-test/.env`（该文件已被其 `.gitignore` 排除，且 `mcp_test.py`
+  仓库根 `.env`（已被 `.gitignore` 排除，且 `travel_mcp.py`
   启动时会自行加载，因此 `.mcp.json` 里不需要再写 Key）。
   若 `METASO_API_KEY` 缺失导致 `ok=false`，可退回使用 agent 内置的 WebSearch/WebFetch，
   但必须在 `raw/web/` 快照头部注明实际使用的工具。
@@ -83,12 +83,15 @@ E:/code/MCP-test/.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .c
 
 ## 工具脚本
 
-系统 Python 无 mcp/httpx 依赖，跑脚本一律用 MCP-test 的解释器：
+跑脚本一律用项目自己的虚拟环境解释器（系统 Python 无 mcp/httpx）：
 
 ```
-E:/code/MCP-test/.venv/Scripts/python.exe scripts/raw_snapshot.py <tool> <raw/相对路径> '<参数json>'
-E:/code/MCP-test/.venv/Scripts/python.exe scripts/lint_wiki.py
+.venv/Scripts/python.exe scripts/raw_snapshot.py <tool> <raw/相对路径> '<参数json>'
+.venv/Scripts/python.exe scripts/lint_wiki.py
 ```
 
-`raw_snapshot.py` 会读 `E:/code/MCP-test/.env` 注入 Key，并把完整返回体落盘（Ingest 第 3 步用它，
+首次搭建：`uv venv .venv` 然后 `uv pip install --python .venv/Scripts/python.exe -r requirements.txt`
+（`requirements.txt` 里 `mcp` 锁 `<2`，因为 v2 把 `FastMCP` 改名成了 `MCPServer`）。
+
+`raw_snapshot.py` 会加载仓库根 `.env` 注入 Key，并把完整返回体落盘（Ingest 第 3 步用它，
 不要手写 JSON）。返回中的 `steps`/`polyline` 会让单个快照达到几十 KB，属正常，勿截断。

@@ -1,3 +1,4 @@
 # travel MCP server 依赖
-mcp>=1.0
+# mcp 2.x 把 FastMCP 改名成 MCPServer，mcp/travel_mcp.py 仍是 v1 API，故锁 <2
+mcp>=1.0,<2
 httpx>=0.27

@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "travel": {
-      "command": "E:/code/MCP-test/.venv/Scripts/python.exe",
-      "args": ["E:/code/MCP-test/mcp_test.py"]
+      "command": ".venv/Scripts/python.exe",
+      "args": ["mcp/travel_mcp.py"]
     }
   }
 }
