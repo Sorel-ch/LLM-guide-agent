@@ -1,0 +1,107 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "mode": "walking",
+    "origin": "121.536631,29.861949",
+    "destination": "121.539591,29.871055",
+    "strategy": null,
+    "alternative_route": null
+  },
+  "data": {
+    "status": "1",
+    "info": "OK",
+    "infocode": "10000",
+    "count": "1",
+    "route": {
+      "origin": "121.536631,29.861949",
+      "destination": "121.539591,29.871055",
+      "paths": [
+        {
+          "distance": "1710",
+          "cost": {
+            "duration": "1368"
+          },
+          "steps": [
+            {
+              "instruction": "向东北步行312米左转",
+              "orientation": "东北",
+              "road_name": "",
+              "step_distance": "312",
+              "cost": {
+                "duration": "250"
+              }
+            },
+            {
+              "instruction": "沿南站西路向西北步行118米右转",
+              "orientation": "西北",
+              "road_name": "南站西路",
+              "step_distance": "118",
+              "cost": {
+                "duration": "94"
+              }
+            },
+            {
+              "instruction": "沿马园路步行782米右转",
+              "orientation": "",
+              "road_name": "马园路",
+              "step_distance": "782",
+              "cost": {
+                "duration": "626"
+              }
+            },
+            {
+              "instruction": "沿迎春街向东步行149米左转",
+              "orientation": "东",
+              "road_name": "迎春街",
+              "step_distance": "149",
+              "cost": {
+                "duration": "119"
+              }
+            },
+            {
+              "instruction": "沿长春路向北步行107米右转",
+              "orientation": "北",
+              "road_name": "长春路",
+              "step_distance": "107",
+              "cost": {
+                "duration": "86"
+              }
+            },
+            {
+              "instruction": "向东南步行186米右转",
+              "orientation": "东南",
+              "road_name": "",
+              "step_distance": "186",
+              "cost": {
+                "duration": "149"
+              }
+            },
+            {
+              "instruction": "向西南步行10米右转",
+              "orientation": "西南",
+              "road_name": "",
+              "step_distance": "10",
+              "cost": {
+                "duration": "8"
+              }
+            },
+            {
+              "instruction": "向西南步行46米左转到达目的地",
+              "orientation": "西南",
+              "road_name": "",
+              "step_distance": "46",
+              "cost": {
+                "duration": "37"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "meta": {
+    "source": "AMap API"
+  }
+}

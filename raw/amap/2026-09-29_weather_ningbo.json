@@ -1,0 +1,33 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "city": "宁波市",
+    "extensions": "base"
+  },
+  "data": {
+    "status": "1",
+    "count": "1",
+    "info": "OK",
+    "infocode": "10000",
+    "lives": [
+      {
+        "province": "浙江",
+        "city": "宁波市",
+        "adcode": "330200",
+        "weather": "阴",
+        "temperature": "28",
+        "winddirection": "东北",
+        "windpower": "≤3",
+        "humidity": "79",
+        "reporttime": "2026-09-29 14:02:18",
+        "temperature_float": "28.0",
+        "humidity_float": "79.0"
+      }
+    ]
+  },
+  "meta": {
+    "source": "AMap API"
+  }
+}

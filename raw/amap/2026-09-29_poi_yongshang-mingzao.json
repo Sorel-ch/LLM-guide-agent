@@ -1,0 +1,90 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "mode": "text",
+    "keywords": "甬上名灶",
+    "types": null,
+    "city": "330200",
+    "location": null,
+    "radius": null,
+    "offset": 5,
+    "page": 1
+  },
+  "data": {
+    "count": "4",
+    "infocode": "10000",
+    "pois": [
+      {
+        "parent": "",
+        "address": "福明街道中山东路1999号文化广场2区1幢一层",
+        "distance": "",
+        "pcode": "330000",
+        "adcode": "330212",
+        "pname": "浙江省",
+        "cityname": "宁波市",
+        "type": "餐饮服务;中餐厅;中餐厅",
+        "typecode": "050100",
+        "adname": "鄞州区",
+        "citycode": "0574",
+        "name": "甬上名灶·宁波小鲜(文化广场店)",
+        "location": "121.615565,29.856807",
+        "id": "B0I33ZUVW8"
+      },
+      {
+        "parent": "",
+        "address": "药行街88号3D区一楼(天一广场3号门)",
+        "distance": "",
+        "pcode": "330000",
+        "adcode": "330203",
+        "pname": "浙江省",
+        "cityname": "宁波市",
+        "type": "餐饮服务;中餐厅;中餐厅",
+        "typecode": "050100",
+        "adname": "海曙区",
+        "citycode": "0574",
+        "name": "甬上名灶·宁波小鲜(天一广场店)",
+        "location": "121.554937,29.867840",
+        "id": "B0L1TG24BN"
+      },
+      {
+        "parent": "B023E052KJ",
+        "address": "环城西路南段359号(金都国际一楼)",
+        "distance": "",
+        "pcode": "330000",
+        "adcode": "330203",
+        "pname": "浙江省",
+        "cityname": "宁波市",
+        "type": "餐饮服务;中餐厅;中餐厅",
+        "typecode": "050100",
+        "adname": "海曙区",
+        "citycode": "0574",
+        "name": "甬上名灶·宁波小鲜(环城西路店)",
+        "location": "121.521865,29.866037",
+        "id": "B0FFHX3BZZ"
+      },
+      {
+        "parent": "",
+        "address": "西门街道体育场路43号16号楼1层(1-2)",
+        "distance": "",
+        "pcode": "330000",
+        "adcode": "330203",
+        "pname": "浙江省",
+        "cityname": "宁波市",
+        "type": "餐饮服务;中餐厅;中餐厅",
+        "typecode": "050100",
+        "adname": "海曙区",
+        "citycode": "0574",
+        "name": "甬上名灶翠柏店",
+        "location": "121.535425,29.881521",
+        "id": "B0G1PUKH9S"
+      }
+    ],
+    "status": "1",
+    "info": "OK"
+  },
+  "meta": {
+    "source": "AMap API"
+  }
+}

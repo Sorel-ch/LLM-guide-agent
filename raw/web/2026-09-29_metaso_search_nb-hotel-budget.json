@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "q": "宁波 两日游 住宿 经济型酒店 价格 天一广场 老外滩 附近 2026",
+    "scope": null,
+    "includeSummary": true,
+    "includeRawContent": false,
+    "size": 6
+  },
+  "data": {
+    "meta": null,
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"credits\":3,\"searchParameters\":{\"conciseSnippet\":false,\"format\":\"chat_completions\",\"includeSummary\":true,\"q\":\"宁波 两日游 住宿 经济型酒店 价格 天一广场 老外滩 附近 2026\",\"scope\":\"webpage\",\"searchFile\":false,\"size\":6},\"total\":39,\"webpages\":[{\"date\":\"2025年10月20日\",\"docId\":\"0783a6a6-2e25-4f65-a491-12533bf14bf3\",\"link\":\"https://hotels.ctrip.com/hotels/dianping/77229_p15t1.html\",\"position\":1,\"score\":\"high\",\"summary\":\"如家精选酒店（宁波老外滩天一广场店）位于宁波市中心，靠近老外滩、天一广场、三江口、南塘老街和天一阁，地铁口距离酒店仅20米，交通便利。酒店提供自助早餐，价格19元/人，品种丰富，服务好。房间舒适，设施齐全，包括空调、电视、电话、24小时宽带等。酒店服务态度好，前台热情周到，房间干净整洁。部分客人提到电梯高峰时等待时间较长，房间内有柱子影响走动。酒店开业于2017年，共有88间客房，电话+86-574-87065888。酒店提供24小时前台服务，入住时间为10:00后，退房时间为13:00前。2026年2月9日至28日不提供早餐。价格为参考价，实际以订单为准。\",\"title\":\"如家精选酒店(宁波老外滩天一广场店)预订价格,联系电话位置地址【携程酒店】\"},{\"date\":\"2026年03月23日\",\"docId\":\"5fdc769f-da48-40ad-b5a1-43e7aa103dbb\",\"link\":\"https://m.ctrip.com/webapp/hotel/searchlist/29.853083/121.582635/\",\"position\":2,\"score\":\"high\",\"snippet\":\"目的地\\n住\\n03-23\\n离\\n03-24\\n1晚\\n位置/品牌/酒店\\n地图\\n欢迎度排序\\n位置距离\\n价格/星级\\n筛选\\nRuby瑰宝酒店(宁波天一广场老外滩店)\\n广告\\n4.7\\n超棒\\n2862点评 · 5561收藏\\n近老外滩 · 天一广场\\n俯瞰外滩美景，AI智能客房体验\\n免费停车\\n可携带宠物\\n洗衣房\\n拍照出片\\n2小时前有人预订\\n登录看低价\\n宁波象山绿城喜来登度假酒店\\n4.6\\n很好\\n5022点评 · 2.3万收藏\\n象山\\n近小达人游乐园 · 宁波松兰山滨海旅游度假区\\n依山傍海，畅享2000㎡儿童乐园\\n日落美景\\n旅拍服务\\n挖沙\\n卡丁车乐园\\n象山亲子乐园酒店榜 No.2\\n登录看低价\\n宁波东钱湖望岚酒店(国际会议中心店)\",\"title\":\"宁波酒店预订,价格查询-宁波宾馆住宿信息-【携程旅行手机版】\"},{\"date\":\"2026年06月10日\",\"docId\":\"7ad7c31e-50d4-48b2-9199-adb454dfc950\",\"link\":\"https://hotels.ctrip.com/hotel/ningbo375/sl6932611\",\"position\":3,\"score\":\"high\",\"snippet\":\"[宁波华港外滩酒店(天一广场老外滩店)图片](https://dimg04.c-ctrip.com/images/1mc4812000ebdh8edAFC7_R_600_600_R5_D.jpg_.webp) - 近老外滩 · 天一广场 - 超棒 4.7酒店价格\\n!\\n[宁波天一广场鼓楼地铁站亚朵酒店图片](https://dimg04.c-ctrip.com/images/0203w1200097n7lw76320_R_600_600_R5_D.jpg_.webp) - 近天一广场 · 宁波鼓楼 - 超棒 4.8酒店价格\",\"title\":\"宁波酒店\"},{\"authors\":[\"小眠池鱼\"],\"date\":\"2024年01月22日\",\"docId\":\"7688d374-dd5a-4aff-a390-93b20e896a48\",\"link\":\"https://gs.ctrip.com/html5/you/article/detail/28713205.html\",\"position\":4,\"score\":\"medium\",\"summary\":\"宁波两日游攻略：避开雷区，轻松游玩。宁波是浙江历史文化名城，交通便利，地铁、公交、租车均可。行程安排：Day1南塘老街-鼓楼-天一阁-天一广场-老外滩；Day2宁波博物馆-东钱湖-韩岭老街。住宿建议住在三江口或天一广场附近，方便出行。推荐小吃：宁波汤圆、年糕、油赞子等。景点包括天一阁（40元/人）、宁波博物馆（免费）、鼓楼、东钱湖（可租自行车环湖）、韩岭老街、天一广场、老外滩（均免费）。宁波景点多，地铁直达，交通方便，非旅游旺季，适合享受宁静的江南水乡。推荐东钱湖骑行，浪漫又轻松。\",\"title\":\"宁波两日游！不踩雷！只需看这篇攻略\"},{\"date\":\"1996年01月01日\",\"docId\":\"0f0ba122-c462-43fb-b12a-51caccfad0f3\",\"link\":\"https://you.ctrip.com/shopping/ningbo83/1683912.html\",\"position\":5,\"score\":\"medium\",\"snippet\":\"-\\n![](https://dimg04.c-ctrip.com/images/1mc0u12000lgdecnt0EB9_R_550_412.jpg)  - 臻庭酒店(宁波天一广场老外滩店)\\n- 4.8分 (999+条点评)\\n- ¥687起 距离312米 立即预订\\n-\\n![](https://dimg04.c-ctrip.com/images/1mc0c12000g5sg1q39B86_R_550_412.jpg)  - EZ Boomtel 逸宿泊庭酒店(宁波老外滩天一广场店)\\n- 4.8分 (256条点评)\\n- ¥1078起 距离381米 立即预订\",\"title\":\"旅游攻略导航\"},{\"date\":\"2024年02月22日\",\"docId\":\"2e1e9a4d-39bf-47b7-be55-82236f23a369\",\"link\":\"https://gs.ctrip.com/html5/you/article/detail/29521106.html\",\"position\":6,\"score\":\"low\",\"summary\":\"宁波两日游不踩雷攻略：宁波是一座历史悠久的海滨城市，适合旅游。交通便利，可乘坐公交、地铁或打车。行程建议：第一天游览南塘老街、鼓楼、天一阁、天一广场、老外滩；第二天参观宁波博物馆、东钱湖和韩岭老街。住宿推荐三江口或天一广场附近，方便出行。推荐小吃如宁波汤圆、油赞子等。景点包括天一阁（40元/人）、宁波博物馆（免费，需预约）、鼓楼（免费）、东钱湖（可租自行车环湖）、韩岭老街（免费）和天一广场（免费）。老外滩为欧洲风格酒吧街。宁波景点多可地铁直达，出行方便，建议避开高峰，享受宁静的江南水乡。东钱湖适合租自行车骑行，风景优美，拍照出片。\",\"title\":\"宁波两日游❗️不踩雷❗️看这篇就够啦⚠️-携程攻略\"}]}",
+        "annotations": null,
+        "meta": null,
+        "description": null
+      }
+    ],
+    "structuredContent": null,
+    "isError": false,
+    "error": null
+  },
+  "meta": {
+    "source": "Metaso MCP",
+    "tool": "metaso_web_search"
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "mode": "walking",
+    "origin": "121.554937,29.867840",
+    "destination": "121.561659,29.877657",
+    "strategy": null,
+    "alternative_route": null
+  },
+  "data": {
+    "status": "1",
+    "info": "OK",
+    "infocode": "10000",
+    "count": "1",
+    "route": {
+      "origin": "121.554937,29.867840",
+      "destination": "121.561659,29.877657",
+      "paths": [
+        {
+          "distance": "1705",
+          "cost": {
+            "duration": "1364"
+          },
+          "steps": [
+            {
+              "instruction": "向北步行383米右转",
+              "orientation": "北",
+              "road_name": "",
+              "step_distance": "383",
+              "cost": {
+                "duration": "306"
+              }
+            },
+            {
+              "instruction": "沿中山东路辅路向东步行302米左转",
+              "orientation": "东",
+              "road_name": "中山东路辅路",
+              "step_distance": "302",
+              "cost": {
+                "duration": "242"
+              }
+            },
+            {
+              "instruction": "沿江厦街步行504米向左前方行走",
+              "orientation": "",
+              "road_name": "江厦街",
+              "step_distance": "504",
+              "cost": {
+                "duration": "403"
+              }
+            },
+            {
+              "instruction": "沿人民路向北步行367米右转",
+              "orientation": "北",
+              "road_name": "人民路",
+              "step_distance": "367",
+              "cost": {
+                "duration": "294"
+              }
+            },
+            {
+              "instruction": "沿车站路向东步行133米右转",
+              "orientation": "东",
+              "road_name": "车站路",
+              "step_distance": "133",
+              "cost": {
+                "duration": "106"
+              }
+            },
+            {
+              "instruction": "沿外马路向南步行16米到达目的地",
+              "orientation": "南",
+              "road_name": "外马路",
+              "step_distance": "16",
+              "cost": {
+                "duration": "13"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "meta": {
+    "source": "AMap API"
+  }
+}

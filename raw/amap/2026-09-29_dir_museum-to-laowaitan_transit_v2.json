@@ -1,0 +1,1183 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "mode": "transit",
+    "origin": "121.545500,29.814614",
+    "destination": "121.561659,29.877657",
+    "strategy": null,
+    "alternative_route": null
+  },
+  "data": {
+    "status": "1",
+    "info": "OK",
+    "infocode": "10000",
+    "route": {
+      "origin": "121.545500,29.814614",
+      "destination": "121.561659,29.877657",
+      "distance": "8568",
+      "cost": {
+        "taxi_fee": "23"
+      },
+      "transits": [
+        {
+          "cost": {
+            "duration": "3470",
+            "transit_fee": "4.0"
+          },
+          "distance": "12459",
+          "walking_distance": "2027",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "121.550171,29.818268",
+                "distance": "837",
+                "origin": "121.545486,29.814739",
+                "cost": {
+                  "duration": "842"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行101米左转",
+                    "road": "",
+                    "distance": "101"
+                  },
+                  {
+                    "instruction": "步行133米右转",
+                    "road": "",
+                    "distance": "133"
+                  },
+                  {
+                    "instruction": "沿惠风东路步行351米左转",
+                    "road": "惠风东路",
+                    "distance": "351"
+                  },
+                  {
+                    "instruction": "步行133米左转",
+                    "road": "",
+                    "distance": "133"
+                  },
+                  {
+                    "instruction": "步行19米到达目的地",
+                    "road": "",
+                    "distance": "19"
+                  },
+                  {
+                    "instruction": "步行1米右转",
+                    "road": "",
+                    "distance": "1"
+                  },
+                  {
+                    "instruction": "步行100米到达鄞州区政府",
+                    "road": "",
+                    "distance": "100"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "鄞州区政府",
+                      "id": "900000067959005",
+                      "location": "121.550169,29.818272",
+                      "entrance": {
+                        "name": "C口",
+                        "location": "121.549946,29.817547"
+                      }
+                    },
+                    "arrival_stop": {
+                      "name": "体育馆",
+                      "id": "900000067959012",
+                      "location": "121.585329,29.871762"
+                    },
+                    "name": "轨道交通3号线(金海路--大通桥)",
+                    "id": "900000067959",
+                    "type": "地铁线路",
+                    "distance": "7630",
+                    "cost": {
+                      "duration": "960"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0607",
+                    "end_time": "",
+                    "station_end_time": "2235",
+                    "via_num": "6",
+                    "via_stops": [
+                      {
+                        "name": "四明中路",
+                        "id": "900000067959006",
+                        "location": "121.550596,29.827977"
+                      },
+                      {
+                        "name": "锦寓路",
+                        "id": "900000067959007",
+                        "location": "121.555693,29.833737"
+                      },
+                      {
+                        "name": "钱湖北路",
+                        "id": "900000067959008",
+                        "location": "121.565616,29.835794"
+                      },
+                      {
+                        "name": "仇毕",
+                        "id": "900000067959009",
+                        "location": "121.575374,29.845328"
+                      },
+                      {
+                        "name": "儿童公园",
+                        "id": "900000067959010",
+                        "location": "121.578385,29.853160"
+                      },
+                      {
+                        "name": "樱花公园",
+                        "id": "900000067959011",
+                        "location": "121.581557,29.863439"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.584404,29.872965",
+                "distance": "280",
+                "origin": "121.585327,29.871761",
+                "cost": {
+                  "duration": "239"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行235米到达体育馆",
+                    "road": "",
+                    "distance": "235"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "体育馆",
+                      "id": "900000177141012",
+                      "location": "121.584398,29.872970"
+                    },
+                    "arrival_stop": {
+                      "name": "外滩大桥",
+                      "id": "900000177141014",
+                      "location": "121.558147,29.883359",
+                      "exit": {
+                        "name": "C口",
+                        "location": "121.558735,29.882124"
+                      }
+                    },
+                    "name": "轨道交通7号线(云龙--俞范)",
+                    "id": "900000177141",
+                    "type": "地铁线路",
+                    "distance": "2802",
+                    "cost": {
+                      "duration": "540"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0606",
+                    "end_time": "",
+                    "station_end_time": "2227",
+                    "via_num": "1",
+                    "via_stops": [
+                      {
+                        "name": "曙光",
+                        "id": "900000177141013",
+                        "location": "121.572978,29.876565"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.561523,29.877682",
+                "distance": "910",
+                "origin": "121.558144,29.883354",
+                "cost": {
+                  "duration": "889"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行190米右转上阶梯",
+                    "road": "",
+                    "distance": "190"
+                  },
+                  {
+                    "instruction": "步行1米到达目的地",
+                    "road": "",
+                    "distance": "1"
+                  },
+                  {
+                    "instruction": "步行28米直行出阶梯",
+                    "road": "",
+                    "distance": "28"
+                  },
+                  {
+                    "instruction": "步行24米左转",
+                    "road": "",
+                    "distance": "24"
+                  },
+                  {
+                    "instruction": "步行24米靠右",
+                    "road": "",
+                    "distance": "24"
+                  },
+                  {
+                    "instruction": "步行237米右转",
+                    "road": "",
+                    "distance": "237"
+                  },
+                  {
+                    "instruction": "沿人民路辅路步行232米左转",
+                    "road": "人民路辅路",
+                    "distance": "232"
+                  },
+                  {
+                    "instruction": "沿车站路步行156米右转",
+                    "road": "车站路",
+                    "distance": "156"
+                  },
+                  {
+                    "instruction": "沿外马路步行19米到达目的地",
+                    "road": "外马路",
+                    "distance": "19"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "cost": {
+            "duration": "3854",
+            "transit_fee": "4.0"
+          },
+          "distance": "16943",
+          "walking_distance": "1703",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "121.550171,29.818268",
+                "distance": "837",
+                "origin": "121.545486,29.814739",
+                "cost": {
+                  "duration": "842"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行101米左转",
+                    "road": "",
+                    "distance": "101"
+                  },
+                  {
+                    "instruction": "步行133米右转",
+                    "road": "",
+                    "distance": "133"
+                  },
+                  {
+                    "instruction": "沿惠风东路步行351米左转",
+                    "road": "惠风东路",
+                    "distance": "351"
+                  },
+                  {
+                    "instruction": "步行133米左转",
+                    "road": "",
+                    "distance": "133"
+                  },
+                  {
+                    "instruction": "步行19米到达目的地",
+                    "road": "",
+                    "distance": "19"
+                  },
+                  {
+                    "instruction": "步行1米右转",
+                    "road": "",
+                    "distance": "1"
+                  },
+                  {
+                    "instruction": "步行100米到达鄞州区政府",
+                    "road": "",
+                    "distance": "100"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "鄞州区政府",
+                      "id": "900000067959005",
+                      "location": "121.550169,29.818272",
+                      "entrance": {
+                        "name": "C口",
+                        "location": "121.549946,29.817547"
+                      }
+                    },
+                    "arrival_stop": {
+                      "name": "大通桥",
+                      "id": "900000067959015",
+                      "location": "121.581747,29.904633"
+                    },
+                    "name": "轨道交通3号线(金海路--大通桥)",
+                    "id": "900000067959",
+                    "type": "地铁线路",
+                    "distance": "11560",
+                    "cost": {
+                      "duration": "1380"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0607",
+                    "end_time": "",
+                    "station_end_time": "2235",
+                    "via_num": "9",
+                    "via_stops": [
+                      {
+                        "name": "四明中路",
+                        "id": "900000067959006",
+                        "location": "121.550596,29.827977"
+                      },
+                      {
+                        "name": "锦寓路",
+                        "id": "900000067959007",
+                        "location": "121.555693,29.833737"
+                      },
+                      {
+                        "name": "钱湖北路",
+                        "id": "900000067959008",
+                        "location": "121.565616,29.835794"
+                      },
+                      {
+                        "name": "仇毕",
+                        "id": "900000067959009",
+                        "location": "121.575374,29.845328"
+                      },
+                      {
+                        "name": "儿童公园",
+                        "id": "900000067959010",
+                        "location": "121.578385,29.853160"
+                      },
+                      {
+                        "name": "樱花公园",
+                        "id": "900000067959011",
+                        "location": "121.581557,29.863439"
+                      },
+                      {
+                        "name": "体育馆",
+                        "id": "900000067959012",
+                        "location": "121.585329,29.871762"
+                      },
+                      {
+                        "name": "明楼",
+                        "id": "900000067959013",
+                        "location": "121.589196,29.879741"
+                      },
+                      {
+                        "name": "中兴大桥南",
+                        "id": "900000067959014",
+                        "location": "121.587855,29.890126"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.581421,29.903759",
+                "distance": "48",
+                "origin": "121.581741,29.904631",
+                "cost": {
+                  "duration": "221"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行128米到达大通桥",
+                    "road": "",
+                    "distance": "128"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "大通桥",
+                      "id": "330200021781007",
+                      "location": "121.581424,29.903762"
+                    },
+                    "arrival_stop": {
+                      "name": "外滩大桥",
+                      "id": "330200021781011",
+                      "location": "121.558811,29.882812",
+                      "exit": {
+                        "name": "C口",
+                        "location": "121.558735,29.882124"
+                      }
+                    },
+                    "name": "轨道交通2号线(红联--栎社国际机场)",
+                    "id": "330200021781",
+                    "type": "地铁线路",
+                    "distance": "3680",
+                    "cost": {
+                      "duration": "600"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0614",
+                    "end_time": "",
+                    "station_end_time": "2224",
+                    "via_num": "3",
+                    "via_stops": [
+                      {
+                        "name": "压赛堰",
+                        "id": "330200021781008",
+                        "location": "121.575493,29.903443"
+                      },
+                      {
+                        "name": "倪家堰",
+                        "id": "330200021781009",
+                        "location": "121.566719,29.898239"
+                      },
+                      {
+                        "name": "正大路",
+                        "id": "330200021781010",
+                        "location": "121.562039,29.889763"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.561523,29.877682",
+                "distance": "818",
+                "origin": "121.558807,29.882809",
+                "cost": {
+                  "duration": "811"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行98米右转上阶梯",
+                    "road": "",
+                    "distance": "98"
+                  },
+                  {
+                    "instruction": "步行1米到达目的地",
+                    "road": "",
+                    "distance": "1"
+                  },
+                  {
+                    "instruction": "步行28米直行出阶梯",
+                    "road": "",
+                    "distance": "28"
+                  },
+                  {
+                    "instruction": "步行24米左转",
+                    "road": "",
+                    "distance": "24"
+                  },
+                  {
+                    "instruction": "步行24米靠右",
+                    "road": "",
+                    "distance": "24"
+                  },
+                  {
+                    "instruction": "步行237米右转",
+                    "road": "",
+                    "distance": "237"
+                  },
+                  {
+                    "instruction": "沿人民路辅路步行232米左转",
+                    "road": "人民路辅路",
+                    "distance": "232"
+                  },
+                  {
+                    "instruction": "沿车站路步行156米右转",
+                    "road": "车站路",
+                    "distance": "156"
+                  },
+                  {
+                    "instruction": "沿外马路步行19米到达目的地",
+                    "road": "外马路",
+                    "distance": "19"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "cost": {
+            "duration": "4000",
+            "transit_fee": "2.0"
+          },
+          "distance": "10795",
+          "walking_distance": "1362",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "121.550568,29.817019",
+                "distance": "702",
+                "origin": "121.545486,29.814739",
+                "cost": {
+                  "duration": "671"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行101米左转",
+                    "road": "",
+                    "distance": "101"
+                  },
+                  {
+                    "instruction": "步行133米右转",
+                    "road": "",
+                    "distance": "133"
+                  },
+                  {
+                    "instruction": "沿惠风东路步行391米左转",
+                    "road": "惠风东路",
+                    "distance": "391"
+                  },
+                  {
+                    "instruction": "步行77米到达鄞州区政府东",
+                    "road": "",
+                    "distance": "77"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "鄞州区政府东",
+                      "id": "900000028867006",
+                      "location": "121.550430,29.817023"
+                    },
+                    "arrival_stop": {
+                      "name": "槐树路",
+                      "id": "900000028867022",
+                      "location": "121.556260,29.880635"
+                    },
+                    "name": "360路(鄞州客运总站--公交庆丰桥站)",
+                    "id": "900000028867",
+                    "type": "普通公交线路",
+                    "distance": "9433",
+                    "cost": {
+                      "duration": "2714"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0640",
+                    "end_time": "",
+                    "station_end_time": "2039",
+                    "via_num": "16",
+                    "via_stops": [
+                      {
+                        "name": "华茂外国语学校",
+                        "id": "900000028867007",
+                        "location": "121.550478,29.821348"
+                      },
+                      {
+                        "name": "四明中路地铁站",
+                        "id": "900000028867008",
+                        "location": "121.551002,29.828153"
+                      },
+                      {
+                        "name": "天童北路嵩江中路口",
+                        "id": "900000028867009",
+                        "location": "121.552244,29.832001"
+                      },
+                      {
+                        "name": "和邦大厦",
+                        "id": "900000028867010",
+                        "location": "121.553566,29.834896"
+                      },
+                      {
+                        "name": "天童北路建兴路口",
+                        "id": "900000028867011",
+                        "location": "121.558960,29.845060"
+                      },
+                      {
+                        "name": "飞虹新村",
+                        "id": "900000028867012",
+                        "location": "121.560745,29.846809"
+                      },
+                      {
+                        "name": "李惠利医院",
+                        "id": "900000028867013",
+                        "location": "121.559460,29.852630"
+                      },
+                      {
+                        "name": "兴宁桥东",
+                        "id": "900000028867014",
+                        "location": "121.555508,29.855026"
+                      },
+                      {
+                        "name": "兴宁桥",
+                        "id": "900000028867015",
+                        "location": "121.552426,29.859839"
+                      },
+                      {
+                        "name": "濠河",
+                        "id": "900000028867016",
+                        "location": "121.555122,29.862427"
+                      },
+                      {
+                        "name": "灵桥路君子街口",
+                        "id": "900000028867017",
+                        "location": "121.557137,29.864721"
+                      },
+                      {
+                        "name": "江厦公园",
+                        "id": "900000028867018",
+                        "location": "121.559288,29.868269"
+                      },
+                      {
+                        "name": "东门口",
+                        "id": "900000028867019",
+                        "location": "121.555768,29.871428"
+                      },
+                      {
+                        "name": "阳光广场站",
+                        "id": "900000028867033",
+                        "location": "121.549967,29.872796"
+                      },
+                      {
+                        "name": "府桥街",
+                        "id": "900000028867032",
+                        "location": "121.549110,29.874281"
+                      },
+                      {
+                        "name": "中山广场",
+                        "id": "900000028867021",
+                        "location": "121.550677,29.877491"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.561523,29.877682",
+                "distance": "660",
+                "origin": "121.556305,29.880543",
+                "cost": {
+                  "duration": "615"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿大庆南路辅路步行26米左转",
+                    "road": "大庆南路辅路",
+                    "distance": "26"
+                  },
+                  {
+                    "instruction": "步行111米向左前方直行",
+                    "road": "",
+                    "distance": "111"
+                  },
+                  {
+                    "instruction": "沿宝记巷步行89米向右前方直行",
+                    "road": "宝记巷",
+                    "distance": "89"
+                  },
+                  {
+                    "instruction": "沿车站路步行12米向左前方直行",
+                    "road": "车站路",
+                    "distance": "12"
+                  },
+                  {
+                    "instruction": "沿车站路步行406米右转",
+                    "road": "车站路",
+                    "distance": "406"
+                  },
+                  {
+                    "instruction": "沿外马路步行16米到达目的地",
+                    "road": "外马路",
+                    "distance": "16"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "cost": {
+            "duration": "3452",
+            "transit_fee": "4.0"
+          },
+          "distance": "8614",
+          "walking_distance": "1018",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "121.543007,29.817270",
+                "distance": "472",
+                "origin": "121.544952,29.814705",
+                "cost": {
+                  "duration": "439"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行46米右转",
+                    "road": "",
+                    "distance": "46"
+                  },
+                  {
+                    "instruction": "步行186米左转",
+                    "road": "",
+                    "distance": "186"
+                  },
+                  {
+                    "instruction": "沿惠风东路步行141米右转",
+                    "road": "惠风东路",
+                    "distance": "141"
+                  },
+                  {
+                    "instruction": "沿宁南南路辅路步行99米到达惠风西路",
+                    "road": "宁南南路辅路",
+                    "distance": "99"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "惠风西路",
+                      "id": "330200011154038",
+                      "location": "121.542915,29.817278"
+                    },
+                    "arrival_stop": {
+                      "name": "灵桥东",
+                      "id": "330200011154042",
+                      "location": "121.560503,29.864683"
+                    },
+                    "name": "628路(小城春秋--江厦桥东)",
+                    "id": "330200011154",
+                    "type": "普通公交线路",
+                    "distance": "5836",
+                    "cost": {
+                      "duration": "1514"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0536",
+                    "end_time": "",
+                    "station_end_time": "2211",
+                    "via_num": "12",
+                    "via_stops": [
+                      {
+                        "name": "钟盈小区",
+                        "id": "330200011154021",
+                        "location": "121.542961,29.821823"
+                      },
+                      {
+                        "name": "万达广场西",
+                        "id": "330200011154022",
+                        "location": "121.543047,29.825302"
+                      },
+                      {
+                        "name": "都市森林",
+                        "id": "330200011154023",
+                        "location": "121.543045,29.827679"
+                      },
+                      {
+                        "name": "慧灯寺",
+                        "id": "330200011154024",
+                        "location": "121.542921,29.830608"
+                      },
+                      {
+                        "name": "宁南立交桥南",
+                        "id": "330200011154025",
+                        "location": "121.542984,29.832909"
+                      },
+                      {
+                        "name": "金家漕",
+                        "id": "330200011154026",
+                        "location": "121.544795,29.841658"
+                      },
+                      {
+                        "name": "长丰新村",
+                        "id": "330200011154027",
+                        "location": "121.545771,29.844665"
+                      },
+                      {
+                        "name": "长丰",
+                        "id": "330200011154028",
+                        "location": "121.545982,29.848824"
+                      },
+                      {
+                        "name": "周宿渡",
+                        "id": "330200011154029",
+                        "location": "121.548073,29.850702"
+                      },
+                      {
+                        "name": "日月星城",
+                        "id": "330200011154030",
+                        "location": "121.551471,29.854440"
+                      },
+                      {
+                        "name": "贺丞路",
+                        "id": "330200011154054",
+                        "location": "121.555480,29.858555"
+                      },
+                      {
+                        "name": "琴桥东",
+                        "id": "330200011154032",
+                        "location": "121.558346,29.861259"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.562599,29.865837",
+                "distance": "334",
+                "origin": "121.560501,29.864679",
+                "cost": {
+                  "duration": "287"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿江东南路步行168米右转",
+                    "road": "江东南路",
+                    "distance": "168"
+                  },
+                  {
+                    "instruction": "沿百丈路辅路步行166米到达灵桥东",
+                    "road": "百丈路辅路",
+                    "distance": "166"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "灵桥东",
+                      "id": "330200010010090",
+                      "location": "121.562584,29.865754"
+                    },
+                    "arrival_stop": {
+                      "name": "老外滩",
+                      "id": "330200010010079",
+                      "location": "121.560321,29.878659"
+                    },
+                    "name": "352路(浅水湾城市花园南区北门--公交清河站)",
+                    "id": "330200010010",
+                    "type": "普通公交线路",
+                    "distance": "1776",
+                    "cost": {
+                      "duration": "992"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0612",
+                    "end_time": "",
+                    "station_end_time": "1932",
+                    "via_num": "1",
+                    "via_stops": [
+                      {
+                        "name": "江厦公园",
+                        "id": "330200010010091",
+                        "location": "121.559288,29.868269"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.561523,29.877682",
+                "distance": "212",
+                "origin": "121.560410,29.878637",
+                "cost": {
+                  "duration": "220"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿人民路辅路步行59米左转",
+                    "road": "人民路辅路",
+                    "distance": "59"
+                  },
+                  {
+                    "instruction": "沿车站路步行134米右转",
+                    "road": "车站路",
+                    "distance": "134"
+                  },
+                  {
+                    "instruction": "沿外马路步行19米到达目的地",
+                    "road": "外马路",
+                    "distance": "19"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "cost": {
+            "duration": "3594",
+            "transit_fee": "4.0"
+          },
+          "distance": "9670",
+          "walking_distance": "791",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "121.543007,29.817270",
+                "distance": "472",
+                "origin": "121.544952,29.814705",
+                "cost": {
+                  "duration": "439"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行46米右转",
+                    "road": "",
+                    "distance": "46"
+                  },
+                  {
+                    "instruction": "步行186米左转",
+                    "road": "",
+                    "distance": "186"
+                  },
+                  {
+                    "instruction": "沿惠风东路步行141米右转",
+                    "road": "惠风东路",
+                    "distance": "141"
+                  },
+                  {
+                    "instruction": "沿宁南南路辅路步行99米到达惠风西路",
+                    "road": "宁南南路辅路",
+                    "distance": "99"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "惠风西路",
+                      "id": "330200011154038",
+                      "location": "121.542915,29.817278"
+                    },
+                    "arrival_stop": {
+                      "name": "琴桥东",
+                      "id": "330200011154032",
+                      "location": "121.558346,29.861259"
+                    },
+                    "name": "628路(小城春秋--江厦桥东)",
+                    "id": "330200011154",
+                    "type": "普通公交线路",
+                    "distance": "5400",
+                    "cost": {
+                      "duration": "1456"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0536",
+                    "end_time": "",
+                    "station_end_time": "2211",
+                    "via_num": "11",
+                    "via_stops": [
+                      {
+                        "name": "钟盈小区",
+                        "id": "330200011154021",
+                        "location": "121.542961,29.821823"
+                      },
+                      {
+                        "name": "万达广场西",
+                        "id": "330200011154022",
+                        "location": "121.543047,29.825302"
+                      },
+                      {
+                        "name": "都市森林",
+                        "id": "330200011154023",
+                        "location": "121.543045,29.827679"
+                      },
+                      {
+                        "name": "慧灯寺",
+                        "id": "330200011154024",
+                        "location": "121.542921,29.830608"
+                      },
+                      {
+                        "name": "宁南立交桥南",
+                        "id": "330200011154025",
+                        "location": "121.542984,29.832909"
+                      },
+                      {
+                        "name": "金家漕",
+                        "id": "330200011154026",
+                        "location": "121.544795,29.841658"
+                      },
+                      {
+                        "name": "长丰新村",
+                        "id": "330200011154027",
+                        "location": "121.545771,29.844665"
+                      },
+                      {
+                        "name": "长丰",
+                        "id": "330200011154028",
+                        "location": "121.545982,29.848824"
+                      },
+                      {
+                        "name": "周宿渡",
+                        "id": "330200011154029",
+                        "location": "121.548073,29.850702"
+                      },
+                      {
+                        "name": "日月星城",
+                        "id": "330200011154030",
+                        "location": "121.551471,29.854440"
+                      },
+                      {
+                        "name": "贺丞路",
+                        "id": "330200011154054",
+                        "location": "121.555480,29.858555"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.558342,29.861259",
+                "distance": "1",
+                "origin": "121.558342,29.861259",
+                "cost": {
+                  "duration": "0"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿江东南路步行1米到达琴桥东",
+                    "road": "江东南路",
+                    "distance": "1"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "琴桥东",
+                      "id": "330200010144040",
+                      "location": "121.558346,29.861259"
+                    },
+                    "arrival_stop": {
+                      "name": "车站路",
+                      "id": "330200010144047",
+                      "location": "121.558746,29.878912"
+                    },
+                    "name": "350路(公交紫郡站--玛瑙路)",
+                    "id": "330200010144",
+                    "type": "普通公交线路",
+                    "distance": "3479",
+                    "cost": {
+                      "duration": "1381"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0626",
+                    "end_time": "",
+                    "station_end_time": "2035",
+                    "via_num": "6",
+                    "via_stops": [
+                      {
+                        "name": "灵桥东",
+                        "id": "330200010144041",
+                        "location": "121.560694,29.865247"
+                      },
+                      {
+                        "name": "江厦公园",
+                        "id": "330200010144057",
+                        "location": "121.559288,29.868269"
+                      },
+                      {
+                        "name": "和义大道(东门口)",
+                        "id": "330200010144049",
+                        "location": "121.556806,29.872114"
+                      },
+                      {
+                        "name": "和义路开明街口",
+                        "id": "330200010144050",
+                        "location": "121.554034,29.873990"
+                      },
+                      {
+                        "name": "解放桥",
+                        "id": "330200010144051",
+                        "location": "121.552457,29.876827"
+                      },
+                      {
+                        "name": "槐树路",
+                        "id": "330200010144021",
+                        "location": "121.556412,29.880711"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.561523,29.877682",
+                "distance": "318",
+                "origin": "121.558746,29.878910",
+                "cost": {
+                  "duration": "318"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿车站路步行302米右转",
+                    "road": "车站路",
+                    "distance": "302"
+                  },
+                  {
+                    "instruction": "沿外马路步行16米到达目的地",
+                    "road": "外马路",
+                    "distance": "16"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "count": "5"
+  },
+  "meta": {
+    "source": "AMap API"
+  }
+}

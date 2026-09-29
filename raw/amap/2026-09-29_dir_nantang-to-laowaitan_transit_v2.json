@@ -1,0 +1,724 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "mode": "transit",
+    "origin": "121.538131,29.853527",
+    "destination": "121.561659,29.877657",
+    "strategy": null,
+    "alternative_route": null
+  },
+  "data": {
+    "status": "1",
+    "info": "OK",
+    "infocode": "10000",
+    "route": {
+      "origin": "121.538131,29.853527",
+      "destination": "121.561659,29.877657",
+      "distance": "4951",
+      "cost": {
+        "taxi_fee": "14"
+      },
+      "transits": [
+        {
+          "cost": {
+            "duration": "3061",
+            "transit_fee": "2.0"
+          },
+          "distance": "6125",
+          "walking_distance": "2495",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "121.537018,29.862141",
+                "distance": "1677",
+                "origin": "121.538162,29.853477",
+                "cost": {
+                  "duration": "1770"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿南塘河街步行34米左转",
+                    "road": "南塘河街",
+                    "distance": "34"
+                  },
+                  {
+                    "instruction": "步行509米左转上阶梯",
+                    "road": "",
+                    "distance": "509"
+                  },
+                  {
+                    "instruction": "步行18米左转出阶梯",
+                    "road": "",
+                    "distance": "18"
+                  },
+                  {
+                    "instruction": "沿永达路(尹江路段)步行715米向右前方直行",
+                    "road": "永达路(尹江路段)",
+                    "distance": "715"
+                  },
+                  {
+                    "instruction": "步行67米右转",
+                    "road": "",
+                    "distance": "67"
+                  },
+                  {
+                    "instruction": "步行26米右转",
+                    "road": "",
+                    "distance": "26"
+                  },
+                  {
+                    "instruction": "步行86米左转",
+                    "road": "",
+                    "distance": "86"
+                  },
+                  {
+                    "instruction": "步行40米到达目的地",
+                    "road": "",
+                    "distance": "40"
+                  },
+                  {
+                    "instruction": "步行1米左转",
+                    "road": "",
+                    "distance": "1"
+                  },
+                  {
+                    "instruction": "步行182米到达宁波火车站",
+                    "road": "",
+                    "distance": "182"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "宁波火车站",
+                      "id": "330200021780011",
+                      "location": "121.537022,29.862141",
+                      "entrance": {
+                        "name": "B口",
+                        "location": "121.537105,29.860976"
+                      }
+                    },
+                    "arrival_stop": {
+                      "name": "外滩大桥",
+                      "id": "330200021780014",
+                      "location": "121.558811,29.882812",
+                      "exit": {
+                        "name": "C口",
+                        "location": "121.558735,29.882124"
+                      }
+                    },
+                    "name": "轨道交通2号线(栎社国际机场--红联)",
+                    "id": "330200021780",
+                    "type": "地铁线路",
+                    "distance": "3630",
+                    "cost": {
+                      "duration": "480"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0600",
+                    "end_time": "",
+                    "station_end_time": "2241",
+                    "via_num": "2",
+                    "via_stops": [
+                      {
+                        "name": "城隍庙",
+                        "id": "330200021780012",
+                        "location": "121.548778,29.867124"
+                      },
+                      {
+                        "name": "鼓楼",
+                        "id": "330200021780013",
+                        "location": "121.548970,29.873914"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.561523,29.877682",
+                "distance": "818",
+                "origin": "121.558807,29.882809",
+                "cost": {
+                  "duration": "811"
+                },
+                "steps": [
+                  {
+                    "instruction": "步行98米右转上阶梯",
+                    "road": "",
+                    "distance": "98"
+                  },
+                  {
+                    "instruction": "步行1米到达目的地",
+                    "road": "",
+                    "distance": "1"
+                  },
+                  {
+                    "instruction": "步行28米直行出阶梯",
+                    "road": "",
+                    "distance": "28"
+                  },
+                  {
+                    "instruction": "步行24米左转",
+                    "road": "",
+                    "distance": "24"
+                  },
+                  {
+                    "instruction": "步行24米靠右",
+                    "road": "",
+                    "distance": "24"
+                  },
+                  {
+                    "instruction": "步行237米右转",
+                    "road": "",
+                    "distance": "237"
+                  },
+                  {
+                    "instruction": "沿人民路辅路步行232米左转",
+                    "road": "人民路辅路",
+                    "distance": "232"
+                  },
+                  {
+                    "instruction": "沿车站路步行156米右转",
+                    "road": "车站路",
+                    "distance": "156"
+                  },
+                  {
+                    "instruction": "沿外马路步行19米到达目的地",
+                    "road": "外马路",
+                    "distance": "19"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "cost": {
+            "duration": "2707",
+            "transit_fee": "2.0"
+          },
+          "distance": "5609",
+          "walking_distance": "1075",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "121.537582,29.852488",
+                "distance": "317",
+                "origin": "121.538162,29.853477",
+                "cost": {
+                  "duration": "318"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿南塘河街步行181米左转",
+                    "road": "南塘河街",
+                    "distance": "181"
+                  },
+                  {
+                    "instruction": "沿祖关山路步行56米左转",
+                    "road": "祖关山路",
+                    "distance": "56"
+                  },
+                  {
+                    "instruction": "沿鄞奉路步行80米到达鄞奉路祖关山路口",
+                    "road": "鄞奉路",
+                    "distance": "80"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "鄞奉路祖关山路口",
+                      "id": "330200010024008",
+                      "location": "121.537595,29.852491"
+                    },
+                    "arrival_stop": {
+                      "name": "槐树路",
+                      "id": "330200010024016",
+                      "location": "121.556412,29.880711"
+                    },
+                    "name": "6路(公交石碶冯家站--公交清河站)",
+                    "id": "330200010024",
+                    "type": "普通公交线路",
+                    "distance": "4534",
+                    "cost": {
+                      "duration": "1667"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0552",
+                    "end_time": "",
+                    "station_end_time": "2211",
+                    "via_num": "7",
+                    "via_stops": [
+                      {
+                        "name": "鄞奉路永达路口",
+                        "id": "330200010024009",
+                        "location": "121.541976,29.853900"
+                      },
+                      {
+                        "name": "兴宁桥西",
+                        "id": "330200010024029",
+                        "location": "121.549866,29.860077"
+                      },
+                      {
+                        "name": "解放南路大沙泥街口",
+                        "id": "330200010024030",
+                        "location": "121.549695,29.863380"
+                      },
+                      {
+                        "name": "城隍庙",
+                        "id": "330200010024013",
+                        "location": "121.548958,29.865864"
+                      },
+                      {
+                        "name": "解放南路大梁街口",
+                        "id": "330200010024031",
+                        "location": "121.548393,29.870304"
+                      },
+                      {
+                        "name": "府桥街",
+                        "id": "330200010024027",
+                        "location": "121.549142,29.874408"
+                      },
+                      {
+                        "name": "中山广场",
+                        "id": "330200010024014",
+                        "location": "121.550728,29.877531"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.561523,29.877682",
+                "distance": "758",
+                "origin": "121.556458,29.880625",
+                "cost": {
+                  "duration": "722"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿大庆南路辅路步行110米右转",
+                    "road": "大庆南路辅路",
+                    "distance": "110"
+                  },
+                  {
+                    "instruction": "沿桃渡路步行111米向右前方直行",
+                    "road": "桃渡路",
+                    "distance": "111"
+                  },
+                  {
+                    "instruction": "沿桃渡路步行112米左转",
+                    "road": "桃渡路",
+                    "distance": "112"
+                  },
+                  {
+                    "instruction": "沿车站路步行406米右转",
+                    "road": "车站路",
+                    "distance": "406"
+                  },
+                  {
+                    "instruction": "沿外马路步行19米到达目的地",
+                    "road": "外马路",
+                    "distance": "19"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "cost": {
+            "duration": "2475",
+            "transit_fee": "4.0"
+          },
+          "distance": "5100",
+          "walking_distance": "530",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "121.537582,29.852488",
+                "distance": "317",
+                "origin": "121.538162,29.853477",
+                "cost": {
+                  "duration": "318"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿南塘河街步行181米左转",
+                    "road": "南塘河街",
+                    "distance": "181"
+                  },
+                  {
+                    "instruction": "沿祖关山路步行56米左转",
+                    "road": "祖关山路",
+                    "distance": "56"
+                  },
+                  {
+                    "instruction": "沿鄞奉路步行80米到达鄞奉路祖关山路口",
+                    "road": "鄞奉路",
+                    "distance": "80"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "鄞奉路祖关山路口",
+                      "id": "330200010028008",
+                      "location": "121.537595,29.852491"
+                    },
+                    "arrival_stop": {
+                      "name": "江厦公园",
+                      "id": "330200010028023",
+                      "location": "121.559288,29.868269"
+                    },
+                    "name": "525路(公交旺源雅苑站--曙光新村)",
+                    "id": "330200010028",
+                    "type": "普通公交线路",
+                    "distance": "3397",
+                    "cost": {
+                      "duration": "1362"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0559",
+                    "end_time": "",
+                    "station_end_time": "1900",
+                    "via_num": "5",
+                    "via_stops": [
+                      {
+                        "name": "鄞奉路永达路口",
+                        "id": "330200010028009",
+                        "location": "121.541976,29.853900"
+                      },
+                      {
+                        "name": "月湖盛园(仓桥街)",
+                        "id": "330200010028021",
+                        "location": "121.548025,29.863453"
+                      },
+                      {
+                        "name": "城隍庙",
+                        "id": "330200010028028",
+                        "location": "121.548975,29.866044"
+                      },
+                      {
+                        "name": "开明街",
+                        "id": "330200010028014",
+                        "location": "121.552223,29.867575"
+                      },
+                      {
+                        "name": "灵桥西(日新街)",
+                        "id": "330200010028044",
+                        "location": "121.555316,29.867200"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.559288,29.868269",
+                "distance": "1",
+                "origin": "121.559288,29.868269",
+                "cost": {
+                  "duration": "0"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿江厦街辅路步行1米到达江厦公园",
+                    "road": "江厦街辅路",
+                    "distance": "1"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "江厦公园",
+                      "id": "330200010137005",
+                      "location": "121.559288,29.868269"
+                    },
+                    "arrival_stop": {
+                      "name": "老外滩",
+                      "id": "330200010137006",
+                      "location": "121.560321,29.878659"
+                    },
+                    "name": "1路(宁波火车站南广场--公交庄市站)",
+                    "id": "330200010137",
+                    "type": "普通公交线路",
+                    "distance": "1173",
+                    "cost": {
+                      "duration": "575"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0613",
+                    "end_time": "",
+                    "station_end_time": "2232",
+                    "via_num": "0",
+                    "via_stops": []
+                  },
+                  {
+                    "departure_stop": {
+                      "name": "江厦公园",
+                      "id": "330200010010091",
+                      "location": "121.559288,29.868269"
+                    },
+                    "arrival_stop": {
+                      "name": "老外滩",
+                      "id": "330200010010079",
+                      "location": "121.560321,29.878659"
+                    },
+                    "name": "352路(浅水湾城市花园南区北门--公交清河站)",
+                    "id": "330200010010",
+                    "type": "普通公交线路",
+                    "distance": "1173",
+                    "cost": {
+                      "duration": "840"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0614",
+                    "end_time": "",
+                    "station_end_time": "1934",
+                    "via_num": "0",
+                    "via_stops": []
+                  },
+                  {
+                    "departure_stop": {
+                      "name": "江厦公园",
+                      "id": "330200010038036",
+                      "location": "121.559288,29.868269"
+                    },
+                    "arrival_stop": {
+                      "name": "老外滩",
+                      "id": "330200010038006",
+                      "location": "121.560321,29.878659"
+                    },
+                    "name": "541路(宁波火车站北广场--招宝山)",
+                    "id": "330200010038",
+                    "type": "普通公交线路",
+                    "distance": "1173",
+                    "cost": {
+                      "duration": "575"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0800",
+                    "end_time": "",
+                    "station_end_time": "0800",
+                    "via_num": "0",
+                    "via_stops": []
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.561523,29.877682",
+                "distance": "212",
+                "origin": "121.560410,29.878637",
+                "cost": {
+                  "duration": "220"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿人民路辅路步行59米左转",
+                    "road": "人民路辅路",
+                    "distance": "59"
+                  },
+                  {
+                    "instruction": "沿车站路步行134米右转",
+                    "road": "车站路",
+                    "distance": "134"
+                  },
+                  {
+                    "instruction": "沿外马路步行19米到达目的地",
+                    "road": "外马路",
+                    "distance": "19"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "cost": {
+            "duration": "2728",
+            "transit_fee": "2.0"
+          },
+          "distance": "5246",
+          "walking_distance": "1089",
+          "nightflag": "0",
+          "segments": [
+            {
+              "walking": {
+                "destination": "121.537582,29.852488",
+                "distance": "317",
+                "origin": "121.538162,29.853477",
+                "cost": {
+                  "duration": "318"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿南塘河街步行181米左转",
+                    "road": "南塘河街",
+                    "distance": "181"
+                  },
+                  {
+                    "instruction": "沿祖关山路步行56米左转",
+                    "road": "祖关山路",
+                    "distance": "56"
+                  },
+                  {
+                    "instruction": "沿鄞奉路步行80米到达鄞奉路祖关山路口",
+                    "road": "鄞奉路",
+                    "distance": "80"
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": {
+                      "name": "鄞奉路祖关山路口",
+                      "id": "330200010028008",
+                      "location": "121.537595,29.852491"
+                    },
+                    "arrival_stop": {
+                      "name": "庆安会馆",
+                      "id": "330200010028024",
+                      "location": "121.562569,29.872878"
+                    },
+                    "name": "525路(公交旺源雅苑站--曙光新村)",
+                    "id": "330200010028",
+                    "type": "普通公交线路",
+                    "distance": "4157",
+                    "cost": {
+                      "duration": "1546"
+                    },
+                    "bus_time_tips": "",
+                    "bustimetag": "0",
+                    "start_time": "",
+                    "station_start_time": "0559",
+                    "end_time": "",
+                    "station_end_time": "1900",
+                    "via_num": "6",
+                    "via_stops": [
+                      {
+                        "name": "鄞奉路永达路口",
+                        "id": "330200010028009",
+                        "location": "121.541976,29.853900"
+                      },
+                      {
+                        "name": "月湖盛园(仓桥街)",
+                        "id": "330200010028021",
+                        "location": "121.548025,29.863453"
+                      },
+                      {
+                        "name": "城隍庙",
+                        "id": "330200010028028",
+                        "location": "121.548975,29.866044"
+                      },
+                      {
+                        "name": "开明街",
+                        "id": "330200010028014",
+                        "location": "121.552223,29.867575"
+                      },
+                      {
+                        "name": "灵桥西(日新街)",
+                        "id": "330200010028044",
+                        "location": "121.555316,29.867200"
+                      },
+                      {
+                        "name": "江厦公园",
+                        "id": "330200010028023",
+                        "location": "121.559288,29.868269"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "destination": "121.561516,29.877678",
+                "distance": "772",
+                "origin": "121.562569,29.872877",
+                "cost": {
+                  "duration": "864"
+                },
+                "steps": [
+                  {
+                    "instruction": "沿江东北路步行56米左转",
+                    "road": "江东北路",
+                    "distance": "56"
+                  },
+                  {
+                    "instruction": "沿荷池路步行11米右转",
+                    "road": "荷池路",
+                    "distance": "11"
+                  },
+                  {
+                    "instruction": "沿江东北路步行136米左转上阶梯",
+                    "road": "江东北路",
+                    "distance": "136"
+                  },
+                  {
+                    "instruction": "步行35米直行出阶梯",
+                    "road": "",
+                    "distance": "35"
+                  },
+                  {
+                    "instruction": "沿桃渡路辅路步行226米向右前方直行上阶梯",
+                    "road": "桃渡路辅路",
+                    "distance": "226"
+                  },
+                  {
+                    "instruction": "步行21米右转出阶梯",
+                    "road": "",
+                    "distance": "21"
+                  },
+                  {
+                    "instruction": "沿外马路步行287米到达目的地",
+                    "road": "外马路",
+                    "distance": "287"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "count": "4"
+  },
+  "meta": {
+    "source": "AMap API"
+  }
+}

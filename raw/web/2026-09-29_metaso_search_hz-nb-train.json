@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "error_code": null,
+  "error_msg": null,
+  "query": {
+    "q": "杭州东 到 宁波 高铁 二等座 票价 运行时间 2026",
+    "scope": null,
+    "includeSummary": true,
+    "includeRawContent": false,
+    "size": 6
+  },
+  "data": {
+    "meta": null,
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"credits\":3,\"searchParameters\":{\"conciseSnippet\":false,\"format\":\"chat_completions\",\"includeSummary\":true,\"q\":\"杭州东 到 宁波 高铁 二等座 票价 运行时间 2026\",\"scope\":\"webpage\",\"searchFile\":false,\"size\":6},\"total\":22,\"webpages\":[{\"date\":\"2026年03月01日\",\"docId\":\"51b54894-b0d5-442b-bdfe-b8695d566fbe\",\"link\":\"https://trains.ctrip.com/TrainBooking/hangzhoudong-ningbodong/\",\"position\":1,\"score\":\"high\",\"snippet\":\"- 二等座62\\n- 一等座99\\n- 无座62\\n16:09\\n杭州东\\n0时48分\\nG7673\\n16:57\\n宁波\\n登录可查看余票/票价\\n- 二等座78\\n- 一等座128\\n- 商务座247\\n- 无座78\\n16:13\\n杭州东\\n0时58分\\nD381\\n17:11\\n宁波\\n登录可查看余票/票价\\n- 二等座59\\n- 一等座94\\n- 无座59\\n16:24\\n杭州东\\n0时58分\\nD3169\\n17:22\\n宁波\\n登录可查看余票/票价\\n- 二等座59\\n- 一等座94\\n- 无座59\\n16:29\\n杭州东\\n1时15分\",\"title\":\"杭州东-宁波东 单程 2026-03-30 (共107车次)火车票>杭州东到宁波东火车票\"},{\"date\":\"2026年02月01日\",\"docId\":\"5af88541-5dc7-4acc-bc9b-e76426c880fd\",\"link\":\"https://trains.ctrip.com/TrainSchedule/hangzhoudong-ningbo/gaotie/\",\"position\":2,\"score\":\"high\",\"snippet\":\"登录可查看余票/票价\\n- 二等座66\\n- 一等座105\\n- 无座66\\n07:36\\n杭州\\n2时40分\\nK1219\\n10:16\\n宁波\\n登录可查看余票/票价\\n- 硬座28.5\\n- 硬卧74.5\\n- 软卧112.5\\n- 无座28.5\\n07:57\\n杭州东\\n1时6分\\nD3145\\n09:03\\n宁波\\n登录可查看余票/票价\\n- 二等座69\\n- 一等座110\\n- 无座69\\n08:12\\n杭州东\\n0时58分\\nG7543\\n09:10\\n宁波\\n登录可查看余票/票价\\n- 二等座71\\n- 一等座120\\n- 优选一等座165\\n- 商务座224\\n- 无座71\",\"title\":\"杭州东-宁波 单程 2026-02-11 (共112车次)高铁>杭州东到宁波高铁票\"},{\"date\":\"2026年02月01日\",\"docId\":\"abb6344b-5fa7-4144-991e-638a6c616809\",\"link\":\"https://trains.ctrip.com/TrainBooking/hangzhoudong-ningbodong/gaotie\",\"position\":3,\"score\":\"high\",\"snippet\":\"08:17\\n杭州东\\n0时59分\\nD2287\\n09:16\\n宁波\\n登录可查看余票/票价\\n- 二等座66\\n- 一等座105\\n- 无座66\\n08:26\\n杭州\\n2时34分\\nD229\\n11:00\\n宁波\\n登录可查看余票/票价\\n- 二等座34\\n- 二等卧111\\n- 一等卧155\\n- 无座34\\n08:28\\n杭州南\\n0时48分\\nD2287\\n09:16\\n宁波\\n登录可查看余票/票价\\n- 二等座59\\n- 一等座94\\n- 无座59\\n08:34\\n杭州东\\n1时1分\\nG3059\\n09:35\\n宁波\\n登录可查看余票/票价\\n- 二等座85\\n- 一等座136\\n- 商务座268\\n- 无座85\",\"title\":\"杭州东-宁波东 单程 2026-02-11 (共112车次)高铁>杭州东到宁波东高铁票\"},{\"date\":\"2026年01月01日\",\"docId\":\"475ac768-d2e0-4944-af03-c8c7c33de116\",\"link\":\"https://www.gaotie.com.cn/lieche/hangzhoudong-ningbo-page2.html\",\"position\":4,\"score\":\"high\",\"snippet\":\"距离:155km\\n二等座:¥69\\n软卧上:¥316\\n软卧下:¥355\\n![订票](../images/dingpiao.gif)\\n历时:58分钟\\n![经停车站](../images/jingguo.gif) 杭州东站 ⇢ 直达 ⇢ 宁波站\\n杭州东站 ⇢ 直达 ⇢ 宁波站![经停车站](../images/jingguo.gif)\\n距离:155km\\n二等座:¥85\\n特等/商务座:¥153\\n软卧上:¥563\\n软卧下:¥634\\n![订票](../images/dingpiao.gif)\",\"title\":\"杭州东到宁波列车时刻表票价\"},{\"date\":\"2026年06月01日\",\"docId\":\"63ad10b3-bf40-4845-a16c-afbad9ea67ad\",\"link\":\"https://trains.ctrip.com/trainbooking/ningbodong-yuhang/gaotie\",\"position\":5,\"score\":\"medium\",\"summary\":\"2026年6月17日宁波东至余杭高铁车次共12个，均为单程。车次包括G7556、G7502、G7576、D3102、G7514、G7518、D3292、D3126、G7584、G7522、D2282、D2424。各车次出发时间从05:46至20:11不等，到达临平南时间从06:56至21:31。票价方面，二等座价格在63元至96元不等，一等座在73元至154元不等，商务座价格较高，无座票价与二等座相同。部分车次需登录查看余票及票价信息。可选择高铁或动车，部分车次提供商务座。\",\"title\":\"宁波东-余杭 单程 2026-06-17 (共12车次)高铁>宁波东到余杭高铁票\"},{\"date\":\"2025年01月01日\",\"docId\":\"491ec72e-d73c-4f1a-9220-524d96e469b6\",\"link\":\"http://gaotie.huochepiao.com/shike_hangzhoudong_ningbo\",\"position\":6,\"score\":\"high\",\"summary\":\"杭州东至宁波高铁时刻表显示，有多趟动车组和高速铁路列车提供服务，车次众多，发车时间从早上7点至晚上10点不等，运行时间大多在1小时左右，部分较长。二等座票价多为54元，一等座为87元或76.5元，特等座和软卧票价也有不同。部分车次为始发车或过路车，具体票价和运行时间略有差异。\",\"title\":\"杭州东到宁波高铁时刻表： 点此查看全部车次\"}]}",
+        "annotations": null,
+        "meta": null,
+        "description": null
+      }
+    ],
+    "structuredContent": null,
+    "isError": false,
+    "error": null
+  },
+  "meta": {
+    "source": "Metaso MCP",
+    "tool": "metaso_web_search"
+  }
+}
