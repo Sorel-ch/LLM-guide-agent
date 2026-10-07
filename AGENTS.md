@@ -61,6 +61,31 @@ Query 默认**不写库**：不建页、不改页、不动 `index.md`/`log.md`�
 在有限调用预算下不要调用，只有人工巡检全库时才用。
 返回的 `meta.warnings` 会把"已过期""坐标未核验"直接说给调用方，外部 agent 据此决定转调高德/秘塔。
 
+## 快速管线（scripts/plan_agent.py）
+
+外部 agent 客户端（Cline 等）跑一次规划实测 140–156 秒，其中 88% 是模型往返：它每轮都要"想一下
+下一步调哪个工具"，thinking 输出量是可见正文的 8 倍。对**第一次规划**（无缓存可复用）这类题目的
+取数顺序其实是确定的，所以本仓库自带一条固定顺序的管线客户端，把模型轮次压到 2 次：
+
+```
+.venv/Scripts/python.exe scripts/plan_agent.py "题目原文" [--date 2026-10-08]
+    # 阶段 A 需求抽取 → 1 次 LLM；阶段 B 取数 0 次 LLM；阶段 C 出方案 → 1 次 LLM
+    # --offline 看调用清单；--skip-llm 只跑到阶段 B；--needs '<JSON>' 跳过抽取；--max-external 9
+```
+
+要点（改动前请先读这段）：
+
+- **关思考**：请求体带 `thinking={"type":"disabled"}` 与 `reasoning_effort="minimal"`。Cline 走
+  openai-compatible 时不会替你发这个字段，所以只能在自家客户端里控制。
+- **外部调用上限默认 9**，按固定配额分配：≤4 次 POI（`城市景点` / `城市站` / 必去点 / 出发地）
+  → 1 次天气 → ≤3 次主干路段 → ≤1 次秘塔（仅当跨城且 wiki 里没有高铁数据）。
+  路段由 `pick_legs()` 按 adcode 与直线距离确定性挑（出发地→枢纽→最近景点→回枢纽），
+  **不算两两矩阵**。实测这一段并行两波跑完 2.4 秒、注入上下文 8.5 K 字符。
+- 票价与开放时间优先取高德 POI 的 `biz_ext.price/cost` 与 `opentime`，不要为这些再问秘塔。
+- 阶段 C 的 system prompt 强制紧凑格式（每段一行、禁止复述工具返回、末尾一行预算合计、总长≤400字），
+  最后一轮输出是主要耗时来源，别把它改成自由长文。
+- 需要模型凭据：仓库根 `.env` 的 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`（见 `.env.example`）。
+
 ## 批量导入（外部知识库冷启动）
 
 `scripts/wikivoyage_import.py` 从 zhwikivoyage 转储批量生成种子页。约定见

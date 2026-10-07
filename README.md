@@ -74,5 +74,8 @@ Cline 4.x 的自动批准字段名是 `autoApprove`（旧文档里的 `alwaysAll
    `uv venv .venv` → `uv pip install --python .venv/Scripts/python.exe -r requirements.txt`。
 2. 对 agent 说："摄入杭州的攻略到 wiki" —— agent 会调用秘塔搜索/读取，快照存入 `raw/`，编译成 `wiki/cities/杭州.md` 等页面并更新 `wiki/index.md` 与 `wiki/log.md`。
 3. 规划行程时："帮我规划 3 天杭州行程" —— agent 先读 `wiki/index.md` 定位页面，再调用高德做实时校验。
+4. 想要更快的第一次规划（不依赖 agent 客户端的多轮循环）：
+   `.venv/Scripts/python.exe scripts/plan_agent.py "题目原文"` —— 固定顺序管线，模型只出场 2 次，
+   外部调用上限 9 次，取数段并行。详见 `AGENTS.md` 的"快速管线"一节（需 `.env` 里的 `LLM_*` 三项）。
 
 详细规则见 [AGENTS.md](AGENTS.md) 与 [schema/schema.md](schema/schema.md)。
