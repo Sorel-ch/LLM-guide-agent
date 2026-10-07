@@ -31,11 +31,35 @@
 
 ## Query（规划）流程
 
-1. 先读 `wiki/index.md` 定位相关页面，只加载需要的页面，不要全库扫读。
-2. 页面中已过 `valid_until` 的内容视为存疑：现场调用高德/秘塔核实后，
-   顺手走一次小型 Ingest 修复该页面。
-3. 实时决策（今天去哪、带不带伞）永远以 `get_amap_weather`、
-   `get_amap_direction` 的即时结果为准，wiki 只提供背景知识。
+顺序固定为 **先查 wiki → 再用高德/秘塔补数 → 最后综合**：
+
+1. 先读导航区（`wiki/index.md` 的"城市/POI/路线"三节，或 `read_index("curated")`）定位相关
+   页面，再用 `read_page` / `read_pages` 加载需要的页，不要全库扫读。
+2. 库里没有的、以及 `meta.warnings` 点出的（过 `valid_until`、`coord_status: unverified`），
+   现场调用 `get_amap_*` / `metaso_*` 补齐，再据此修正结论。
+3. 给出规划时区分信息来源：哪些出自 wiki（可追溯、有快照）、哪些是本次现查（只对当场有效），
+   不要把现查结果包装成库里的既有事实。
+4. 实时决策（今天去哪、带不带伞）永远以 `get_amap_weather`、`get_amap_direction`
+   的即时结果为准，wiki 只提供背景知识。
+
+Query 默认**不写库**：不建页、不改页、不动 `index.md`/`log.md`。只有用户明确要求
+"收录/沉淀这条路线"时，才切换到 Ingest 流程（含落 `raw/` 快照）。
+
+## 只读 wiki MCP（外部 agent 测试）
+
+`mcp/wiki_mcp.py` 是第二个 FastMCP server，把 `wiki/` 的读取能力单独暴露给外部客户端
+（VSCode Cline 等），**不含任何写操作**，路径被限制在 `wiki/` 内（`../` 与绝对路径一律
+`PATH_OUT_OF_WIKI`）。四个工具：
+
+| 工具 | 返回量 | 用法 |
+|---|---|---|
+| `read_index("curated")` | 约 900 字符 | 每次规划的第一步 |
+| `search_pages(keyword)` | 15 条内 | 靠索引行定位，别扫全库正文 |
+| `read_page(path)` / `read_pages([...])` | 单页 2–5 KB | 后者的批量读用来省调用次数 |
+
+`read_index("seeds")` 与 `"all"` 返回 **13.4 万字符**（1739 个种子页清单），
+在有限调用预算下不要调用，只有人工巡检全库时才用。
+返回的 `meta.warnings` 会把"已过期""坐标未核验"直接说给调用方，外部 agent 据此决定转调高德/秘塔。
 
 ## 批量导入（外部知识库冷启动）
 
@@ -77,6 +101,13 @@
   才返回 `paths[].time` 与 `transits[].cost.duration`，**不要再为拿耗时重发一遍**。
   若 `METASO_API_KEY` 缺失导致 `ok=false`，可退回使用 agent 内置的 WebSearch/WebFetch，
   但必须在 `raw/web/` 快照头部注明实际使用的工具。
+- 两个 server 的工具返回都是**单份紧凑 JSON**（无缩进，且不带 `structuredContent` 重复体）。
+  直接返回 dict 会让 FastMCP 同时吐两份，实测一次规划 24 次工具返回 827 KB → 310 KB；
+  上下文长度就是模型往返耗时，所以别把工具改回返回 dict。
+- **同参数 15 分钟内复用缓存**（`TRAVEL_DEDUP_TTL` 秒，设 0 关闭）：命中时不请求外部接口，
+  返回体 `meta.reused_call` 说明复用自第几次调用。只有成功结果才缓存，失败一律真发重试。
+  POI 检索换了关键词但命中同一地点时，条目带 `seen_in_call`、全重复时 `meta.note` 会明说，
+  据此停止重复检索。落 `raw/` 快照走的也是这套返回，落盘时会还原成缩进版且字段不裁。
 
 ## Windows 控制台注意
 

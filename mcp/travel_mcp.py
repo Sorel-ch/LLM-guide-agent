@@ -1,8 +1,12 @@
+import functools
+import inspect
+import json
 import os
 import re
+import time
 from typing import Any
 import httpx
-from mcp import ClientSession
+from mcp import ClientSession, types
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.fastmcp import FastMCP
 from pathlib import Path
@@ -105,6 +109,104 @@ def metaso_fail(code: str, msg: str, raw: Any = None, query: dict[str, Any] | No
     return payload
 
 
+# ---------------------------------------------------------------------------
+# 对外返回层：紧凑序列化 + 会话内去重
+#
+# 实测一次规划 140 秒里有 123 秒花在模型往返上，而往返耗时基本由上下文长度决定；
+# FastMCP 对 dict 返回值一律按 indent=2 序列化，白白多占约四成体积。同参数再打一次
+# 外部接口则纯烧配额（上一轮就为"拿耗时"整条重发过 4 次）。两件事都在这一层解决，
+# 所以七个工具函数本体保持返回 dict，只在注册时包一层。
+# ---------------------------------------------------------------------------
+
+DEDUP_TTL = float(os.getenv("TRAVEL_DEDUP_TTL", "900"))
+_CALL_CACHE: dict[str, tuple[float, int, dict[str, Any]]] = {}  # 参数指纹 -> (时间, 第几次, 返回体)
+_POI_SEEN: dict[str, int] = {}  # POI/tip 的 id -> 首次出现在第几次调用
+_STATE = {"seq": 0}
+
+
+def _compact(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _text_result(payload: dict[str, Any]) -> types.CallToolResult:
+    """只留一份正文。
+
+    工具函数直接返回 dict 时，FastMCP 会同时给出 indent=2 的 text 正文和一份
+    structuredContent；实测一次天气调用 3637 B 里有 1281 B 是同一份数据的重复。
+    显式构造 CallToolResult 并注解为它，才会完全不走结构化那条路。
+    """
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=_compact(payload))],
+        structuredContent=None,
+    )
+
+
+def _fingerprint(name: str, args: dict[str, Any]) -> str:
+    kept = {k: v for k, v in args.items() if k != "api_key" and v not in (None, "", [], {})}
+    return f"{name}|{json.dumps(kept, sort_keys=True, ensure_ascii=False, separators=(',', ':'))}"
+
+
+def _mark_seen_entities(payload: dict[str, Any]) -> None:
+    """换关键词搜到同一个 POI 时（"杭州东站" / "火车东站"），标出来让模型看得见。"""
+    data = payload.get("data") or {}
+    rows = data.get("pois") or data.get("tips") or []
+    if not isinstance(rows, list):
+        return
+    with_id = [r for r in rows if isinstance(r, dict) and r.get("id")]
+    dupes = 0
+    for row in with_id:
+        seen = _POI_SEEN.get(row["id"])
+        if seen:
+            row["seen_in_call"] = seen
+            dupes += 1
+        else:
+            _POI_SEEN[row["id"]] = _STATE["seq"]
+    if with_id and dupes == len(with_id):
+        payload.setdefault("meta", {})["note"] = (
+            "这些 POI 之前的调用已全部返回过（seen_in_call 标明是第几次），"
+            "坐标等信息在上文里，不必再换关键词重复检索"
+        )
+
+
+def travel_tool(fn):
+    sig = inspect.signature(fn)
+
+    def finish(args: dict[str, Any], payload: dict[str, Any]) -> types.CallToolResult:
+        key = _fingerprint(fn.__name__, args)
+        hit = _CALL_CACHE.get(key)
+        if hit and time.time() - hit[0] < DEDUP_TTL:
+            _ts, seq, cached = hit
+            # 只改顶层 meta，浅拷贝即可，不动缓存里的对象
+            meta = {**(cached.get("meta") or {}), "reused_call": seq}
+            meta["note"] = f"参数与第 {seq} 次调用完全相同，已复用其结果，本次未请求外部接口"
+            return _text_result({**cached, "meta": meta})
+
+        _STATE["seq"] += 1
+        payload.setdefault("meta", {})["call_seq"] = _STATE["seq"]
+        _mark_seen_entities(payload)
+        if payload.get("ok"):  # 失败不缓存，否则瞬时错误会把后续重试一起挡掉
+            _CALL_CACHE[key] = (time.time(), _STATE["seq"], payload)
+        return _text_result(payload)
+
+    def args_of(call_args, call_kwargs):
+        return dict(sig.bind(*call_args, **call_kwargs).arguments)
+
+    if inspect.iscoroutinefunction(fn):
+
+        @functools.wraps(fn)
+        async def wrapper(*call_args, **call_kwargs):
+            return finish(args_of(call_args, call_kwargs), await fn(*call_args, **call_kwargs))
+    else:
+
+        @functools.wraps(fn)
+        def wrapper(*call_args, **call_kwargs):
+            return finish(args_of(call_args, call_kwargs), fn(*call_args, **call_kwargs))
+
+    # 注解成 CallToolResult 才能让 FastMCP 不再生成 output schema（否则返回 dict 会被双份序列化）
+    wrapper.__signature__ = sig.replace(return_annotation=types.CallToolResult)
+    return mcp.tool()(wrapper)
+
+
 async def call_metaso_tool(tool_name: str, arguments: dict[str, Any], query: dict[str, Any]) -> dict[str, Any]:
     if not METASO_API_KEY:
         return metaso_fail(
@@ -146,7 +248,7 @@ async def call_metaso_tool(tool_name: str, arguments: dict[str, Any], query: dic
     return metaso_ok(tool_name, result.model_dump(), query=query)
 
 
-@mcp.tool()
+@travel_tool
 async def metaso_web_search(
     q: str,
     scope: str | None = None,
@@ -180,7 +282,7 @@ async def metaso_web_search(
     )
 
 
-@mcp.tool()
+@travel_tool
 async def metaso_web_reader(url: str, format: str = "markdown") -> dict[str, Any]:
     """封装秘塔网页内容读取能力到本地 travel-mcp。"""
     if format not in {"json", "markdown"}:
@@ -193,7 +295,7 @@ async def metaso_web_reader(url: str, format: str = "markdown") -> dict[str, Any
     return await call_metaso_tool("metaso_web_reader", arguments, {"url": url, "format": format})
 
 
-@mcp.tool()
+@travel_tool
 async def metaso_chat(message: str, model: str = "fast") -> dict[str, Any]:
     """封装秘塔智能问答能力到本地 travel-mcp。"""
     arguments = {
@@ -202,7 +304,7 @@ async def metaso_chat(message: str, model: str = "fast") -> dict[str, Any]:
     }
     return await call_metaso_tool("metaso_chat", arguments, {"message": message, "model": model})
 
-@mcp.tool()
+@travel_tool
 def get_amap_input_tips(
     keywords: str,
     city: str | None = None,
@@ -282,7 +384,7 @@ def get_amap_input_tips(
         }
     )
 
-@mcp.tool()
+@travel_tool
 def get_amap_weather(
 	city: str,
 	extensions: str = "base",
@@ -330,7 +432,7 @@ def get_amap_weather(
 	return ok(data=data, query={"city": city, "extensions": extensions})
 
 
-@mcp.tool()
+@travel_tool
 def get_amap_direction(
     origin: str,
     destination: str,
@@ -455,7 +557,7 @@ def get_amap_direction(
         },
     )
 
-@mcp.tool()
+@travel_tool
 def get_amap_poi_search(
     keywords: str | None = None,
     types: str | None = None,

@@ -42,23 +42,32 @@ def main() -> int:
     if inspect.isawaitable(result):
         result = asyncio.run(result)
 
+    # 工具层现在返回 CallToolResult（只有一份紧凑正文，那是为模型上下文省的）；
+    # 落盘时还原成缩进版，与 raw/ 里既有快照格式一致——省的是空白，不截断任何字段。
+    if hasattr(result, "content"):
+        payload = json.loads(result.content[0].text)
+    elif isinstance(result, str):
+        payload = json.loads(result)
+    else:
+        payload = result
+
     out_path = REPO_ROOT / out_rel
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
-        json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    ok = result.get("ok")
+    ok = payload.get("ok")
     try:
         shown = out_path.relative_to(REPO_ROOT).as_posix()
     except ValueError:
         shown = out_path.as_posix()
     print(f"ok={ok} -> {shown}")
     if not ok:
-        print(f"error_code={result.get('error_code')} error_msg={result.get('error_msg')}")
+        print(f"error_code={payload.get('error_code')} error_msg={payload.get('error_msg')}")
         return 1
     if name.startswith("metaso"):
-        text = json.dumps(result, ensure_ascii=False)
+        text = json.dumps(payload, ensure_ascii=False)
         print(f"payload_chars={len(text)}")
     return 0
 
