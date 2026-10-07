@@ -3,6 +3,10 @@
     "travel": {
       "command": ".venv/Scripts/python.exe",
       "args": ["mcp/travel_mcp.py"]
+    },
+    "wiki": {
+      "command": ".venv/Scripts/python.exe",
+      "args": ["mcp/wiki_mcp.py"]
     }
   }
 }
