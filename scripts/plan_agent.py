@@ -1,16 +1,17 @@
-"""顺序管线的规划客户端：取数顺序写死，模型只在两端出场，最后再加一轮定向补查。
+"""管线规划客户端（约束删减版，2026-10-12）。
 
-为什么这么做（实测数据）：Cline + DeepSeek 跑同一道题 156 秒，其中 138 秒是 6 个模型轮次
-的往返，而 89% 的解码量是模型在想"下一步调哪个工具"。取数顺序对这类题目其实是确定的，
-所以这里写死；但"确定"不等于"够全"，所以末尾留一轮让模型点名要它还缺什么。
+完整版（全部硬约束）保存在分支 `archive/pipeline-full-2026-10-12`。
+本版按编号删掉的约束：①固定三波取数顺序 ③外部调用配额 ④防编造三条
+⑤预算两行制 ⑦补查白名单与参数夹取 ⑧跨城 transit 腿禁令 ⑨秘塔 NO_RESULT 原参数重发
+⑩POI 强制 show_fields=business。保留：②不碰 read_index(seeds/all) 大清单
+⑥紧凑格式与 ≤1000 字上限 ⑪thinking=disabled。
 
 阶段：
   A 需求抽取   LLM #1，关思考，小输出
   B1 知识库     本地读 wiki，0 次外部调用
-  B2 高德       POI（按 themes/must_visit 全量）→ 天气 → 主干路段
-  B3 秘塔       城际车次票价（永远排在高德之后）
+  B2 取数       POI 与秘塔同波并发（秘塔摘要参与选枢纽）；天气与路段等 POI 坐标就绪后发出
   C 初稿        LLM #2，紧凑格式，≤1000 字
-  D 补查        LLM #3 只递结构化缺口清单，参数经白名单校验后才发请求（高德先、秘塔后）
+  D 补查        LLM #3 递缺口清单，清单原样执行（不分白名单）
   E 终稿        LLM #4，带着补查数据改写初稿
 
 用法:
@@ -18,7 +19,8 @@
     .venv/Scripts/python.exe scripts/plan_agent.py "题目原文" --offline   # 只打印调用清单
     .venv/Scripts/python.exe scripts/plan_agent.py "题目" --fact '杭州东→绍兴北 二等座 24 元'
         # --fact 可重复：agent 侧核实过的事实，点名的车站会被选成到达枢纽
-    可选：--thinking off|low|on  --max-external 16  --max-extra 5（0 关补查轮）
+    可选：--thinking off|low|on  --max-external 0（0=不限）
+          --max-extra -1（-1=补查不限，0=关补查轮，N=最多 N 次）
           --skip-llm  --needs '<JSON>'  --out .cache/plan_run.md
 """
 
@@ -65,12 +67,10 @@ EXTRACTION_SCHEMA = """{"origin":"","origin_city":"","destination_city":"","inte
 "day_trip":true,"budget_yuan":300,"themes":["美食"],"must_visit":["校区参观"],
 "need_intercity_ticket":true,"date":"YYYY-MM-DD"}"""
 
-# 放宽的三处上限：输出篇幅、wiki 页数、路段腿数。防编造的硬约束（SYSTEM_PLAN 3/4 条）一个字没动。
-PLAN_CHAR_LIMIT = 1000      # 阶段 C 的字数上限（原 400）
-WIKI_MAX_PAGES = 8          # 注入上下文的 wiki 页数（原 4）
-WIKI_MAX_CHARS = 14000      # wiki 块总预算（原 9000）
-MAX_LEGS = 6                # 主干路段条数上限（原 3~4，两条被园内子点吃掉）
-DEFAULT_MAX_EXTERNAL = 16   # --max-external 默认值（原 9）：10 次 POI + 1 天气 + ≤6 路段 + 1 秘塔
+# 保留 ⑥：输出篇幅仍是硬上限；其余配额（路段条数 / 外部调用数）已删。
+PLAN_CHAR_LIMIT = 1000      # 阶段 C 的字数上限
+WIKI_MAX_PAGES = 8          # 注入上下文的 wiki 页数
+WIKI_MAX_CHARS = 14000      # wiki 块总预算
 
 SYSTEM_EXTRACT = (
     "你只做需求抽取，不要规划、不要解释。读用户题目，只输出一个 JSON 对象，字段与含义：\n"
@@ -82,33 +82,21 @@ SYSTEM_EXTRACT = (
 )
 
 SYSTEM_PLAN = (
+    # ④防编造三条与⑤预算两行制已删；只保留⑥（紧凑格式与字数上限）。
     "你是行程规划器。依据后面给出的【知识库】【实时数据】输出当天方案，要求：\n"
     "1. 只输出紧凑方案本身：每段一行，形如 'HH:MM-HH:MM 地点 | 交通方式与耗时 | 花费'；\n"
     "2. 严禁复述工具返回内容、严禁解释你的推理、严禁逐条标注来源；\n"
-    "3. 城际往返（若 need_intercity）必须出现在方案里，只用给定的车次/车程/票价，不要自己编；"
-    "给定的发车时刻只对写它的那个方向有效，反向没有时刻就写'班次待核实'；\n"
-    "4. 门票/人均取自给定数据，缺数据就写'待核实'，不要用常识补；"
-    "没有对应【路段】数据的两点之间，不要写具体线路与耗时，一律'交通待核实'；\n"
-    "5. 预算分两行：'已核实小计：X 元（逐项列出）' 只加给定过的数字；"
-    "'未核实项：门票/餐费/市内票价若干' 单列，不要把没数据的项算进小计，也不要用没数据的小计去对比上限；\n"
-    f"6. 总长不超过 {PLAN_CHAR_LIMIT} 字：每段一行可以短，但题目要求的内容类别（景点、餐饮、住宿、往返）"
-    "都要各自出现，缺数据的那一项写成待核实而不是省略。\n"
+    f"3. 总长不超过 {PLAN_CHAR_LIMIT} 字：每段一行可以短，但题目要求的内容类别（景点、餐饮、住宿、往返）"
+    "都要各自出现。\n"
 )
 
-# 补查轮：模型看完初稿，只允许按结构化清单要数据，不许它自由发挥。
+# 补查轮：模型递清单，我们不再做白名单与参数夹取（⑦已删）。
 SYSTEM_GAP = (
     "你只做缺口清单，不要改方案、不要解释。给你【题目】【已有数据】【初稿】，"
-    "找出初稿里因为缺数据而写'待核实'或明显单薄的地方，按 JSON 输出：\n"
+    "找出初稿里明显单薄或缺数据的地方，按 JSON 输出：\n"
     '{"asks":[{"tool":"get_amap_poi_search|get_amap_direction|get_amap_weather|'
     'metaso_web_search","args":{...},"why":"缺什么"}]}\n'
-    "规则：最多 {limit} 条；args 只准用该工具的参数名（POI 用 keywords/city/offset，"
-    "direction 用 origin/destination/mode，weather 用 city/extensions，metaso 用 q/size）；"
-    "direction 的两个端点写地名即可（管线按 POI→路段→秘塔 的顺序执行，"
-    "同批里先补的 POI 会把坐标带进来，解析不到的那条会丢弃并在结果里说明）；"
-    "优先补金额最大的那几笔缺口（城际车票、门票、当日住宿），补票价/营业时间用 metaso 的问句，"
-    "补地点用 POI；初稿里写成'交通待核实'的相邻两站，只要两个地名都在【已有数据】里，"
-    "就用 get_amap_direction 把它们补测出来（mode 用 transit 或 walking）。"
-    "不要补主观建议，不要补今天天气之外的实时项。"
+    "优先补金额最大的那几笔缺口（城际车票、门票、当日住宿）。"
     "没有值得补的就输出 {\"asks\":[]}。只输出 JSON。"
 )
 
@@ -277,8 +265,8 @@ def metaso_webpages(payload: dict) -> list[dict]:
 
 
 def poi_call(keywords: str, city: str | None = None, offset: int = 5) -> tuple[str, dict]:
-    """POI 检索统一带上 show_fields=business，否则 v5 连开放时间都不返回。"""
-    args: dict = {"keywords": keywords, "offset": offset, "show_fields": "business"}
+    # ⑩已删：不再强制 show_fields=business（v5 不带它就没有 biz_ext，票价/开放时间留空）。
+    args: dict = {"keywords": keywords, "offset": offset}
     if city:
         args["city"] = city
     return "get_amap_poi_search", args
@@ -339,10 +327,10 @@ def metaso_summaries(payload: dict, limit: int = 3) -> list[str]:
 
 def gather_external(needs: dict, wiki_text: str, max_external: int, quiet: bool,
                     facts: list[str] | None = None) -> dict:
-    """三波取数，顺序固定：wiki（本地，调用方已读）→ 高德 POI → 高德天气与路段 → 秘塔。
-
-    秘塔压到最后一波单独发，只补城际车次票价，不参与选枢纽——实测秘塔摘要里
-    "绍兴东站/绍兴站"混着出现，子串命中就会选错枢纽、烧掉一条 156 分的上虞方向腿。
+    """①③已删：不再分三波、不再按类型配额。POI 与秘塔同一波并发，秘塔摘要也参与选枢纽
+    （原实现特意把秘塔压到末波、只让 --fact 参与决策，是为了防站名把枢纽带偏——这条保护已移除）。
+    天气与路段仍排在 POI 之后，那是坐标依赖，不是顺序约束。
+    max_external<=0 表示不限；>0 时只按截断顺序砍 POI。
 
     取数面按 themes 与 must_visit 全量铺开：只搜 `{city}景点` 时，题目里的"美食"根本没进检索，
     模型最后那句"绍兴菜午餐"就是凭空写的（成都那次实测：9 次调用里 0 次查过餐厅）。
@@ -351,13 +339,11 @@ def gather_external(needs: dict, wiki_text: str, max_external: int, quiet: bool,
     origin = needs.get("origin") or ""
     origin_city = needs.get("origin_city") or ""
 
-    need_ticket = bool(needs.get("intercity") or needs.get("need_intercity_ticket"))         and "高铁" not in wiki_text
-    # 天气 1 + 路段 MAX_LEGS + 秘塔 1 是后两波的固定开销，剩下的配额都给 POI
-    poi_cap = max(4, max_external - 2 - MAX_LEGS)
+    need_ticket = bool(needs.get("intercity") or needs.get("need_intercity_ticket")) \
+        and "高铁" not in wiki_text
+
     calls: list[tuple[str, dict]] = []
-    # 槽位分配（超限时从后往前砍）：必去点 → 车站 → 出发地 → wiki 点名的景点 → 主题词 → 泛景点。
-    # 成都实测两件事：只搜 `成都景点` 时高德给回 9 条里 7 条是公园绿地，三日行程全是免费公园；
-    # 而把车站与出发地挤到检索词之后，到达枢纽没了、第一公里也测不到，满屏"交通待核实"。
+    # 排列只是为了 --max-external 截断时先砍谁：必去点 → 车站 → 高铁站 → 出发地 → wiki 点名的景点 → 主题词 → 泛景点。
     for kw in (needs.get("must_visit") or [])[:2]:
         calls.append(poi_call(kw if city in kw else f"{city}{kw}", city, 3))
     calls.append(poi_call(f"{city}站", city, 4))
@@ -374,17 +360,27 @@ def gather_external(needs: dict, wiki_text: str, max_external: int, quiet: bool,
     for th in (needs.get("themes") or [])[:2]:
         calls.append(poi_call(f"{city}{th}", city, 5))
     calls.append(poi_call(f"{city}景点", city, 10))
+    metaso_calls = ([("metaso_web_search",
+                      {"q": f"{origin_city or city}到{city} 高铁时刻表 票价", "size": 5})]
+                    if need_ticket else [])
+    if max_external and max_external > 0:
+        calls = calls[:max(4, max_external - len(metaso_calls))]
 
-    wave1 = run_calls(calls[:poi_cap], quiet)
+    wave1 = run_calls(calls + metaso_calls, quiet)
 
     pois: dict[str, dict] = {}
     adcode = collect_pois(wave1, pois, city)
 
+    # hints：--fact 与秘塔摘要都参与选枢纽（①删掉了"秘塔不参与决策"的保护）
+    hints = " ".join(facts or [])
+    for t_name, _args, payload in wave1:
+        if t_name == "metaso_web_search" and payload.get("ok"):
+            hints += "\n" + "\n".join(metaso_summaries(payload))
+
     wave2: list[tuple[str, dict]] = []
     if adcode:
         wave2.append(("get_amap_weather", {"city": adcode, "extensions": "all"}))
-    leg_slots = min(MAX_LEGS, max_external - len(wave1) - len(wave2) - (1 if need_ticket else 0))
-    legs = pick_legs(needs, pois, leg_slots, adcode, " ".join(facts or []))
+    legs = pick_legs(needs, pois, 0, adcode, hints)
     for a_name, b_name, mode in legs:
         a, b = pois[a_name], pois[b_name]
         wave2.append(("get_amap_direction",
@@ -393,16 +389,12 @@ def gather_external(needs: dict, wiki_text: str, max_external: int, quiet: bool,
 
     wave2_results = run_calls(wave2, quiet)
 
-    wave3_results = run_calls(
-        [("metaso_web_search", {"q": f"{origin_city or city}到{city} 高铁时刻表 票价", "size": 5})]
-        if need_ticket else [], quiet)
-
     return {
         "pois": pois,
         "adcode": adcode,
-        "results": wave1 + wave2_results + wave3_results,
+        "results": wave1 + wave2_results,
         "legs": legs,
-        "external_count": len(wave1) + len(wave2_results) + len(wave3_results),
+        "external_count": len(wave1) + len(wave2_results),
     }
 
 
@@ -418,18 +410,9 @@ def run_calls(calls: list[tuple[str, dict]], quiet: bool) -> list:
 
 
 # --------------------------------------------------------------------------
-# 补查轮：模型只准递清单，参数由我们校验，顺序仍然高德在前、秘塔在后
+# 补查轮：⑦已删——不再有工具白名单与参数夹取，清单原样执行。
+# POI/天气 → 路段 → 秘塔 的分批只是坐标解析依赖，不是校验。
 # --------------------------------------------------------------------------
-
-GAP_TOOL_ARGS = {
-    "get_amap_poi_search": {"keywords", "types", "city", "location", "radius",
-                            "offset", "page", "show_fields"},
-    "get_amap_direction": {"origin", "destination", "mode", "city", "city1", "city2",
-                           "show_fields"},
-    "get_amap_weather": {"city", "extensions"},
-    "metaso_web_search": {"q", "scope", "includeSummary", "includeRawContent", "size"},
-}
-GAP_MODES = {"driving", "walking", "bicycling", "transit"}
 
 
 def resolve_ref(ref: str, pois: dict) -> str | None:
@@ -442,71 +425,22 @@ def resolve_ref(ref: str, pois: dict) -> str | None:
     return pois[min(hits, key=len)]["coord"] if hits else None
 
 
-def sanitize_gap_asks(asks: list, pois: dict, adcode: str | None, limit: int) -> tuple[list, list[str]]:
-    """白名单 + 参数夹取。direction 的端点允许写地点名（执行时先补 POI 再解析），
-    但**直接给坐标必须是台账里已有的那个**：模型很乐意编一个经纬度出来，那比"待核实"更糟
-    ——它会变成一条看起来实测过的路段。"""
-    known_coords = {p["coord"] for p in pois.values()}
+def gap_calls(asks: list) -> tuple[list, list[str]]:
+    """原样接收清单：tool 与 args 不做校验、不夹取，只剔掉结构坏掉和重复的条目。
+    坐标不核对台账（⑦删了）：模型给什么坐标就往高德发什么，地名端点留给下面的批次解析。"""
     out: list[tuple[str, dict]] = []
     notes: list[str] = []
     for item in asks or []:
-        if len(out) >= limit:
-            notes.append("达到补查上限，后面的清单丢弃")
-            break
-        if not isinstance(item, dict):
+        if not isinstance(item, dict) or not item.get("tool"):
             continue
-        tool = item.get("tool")
-        if tool not in GAP_TOOL_ARGS:
-            notes.append(f"工具名不在白名单，丢弃：{tool!r}")
+        tool = str(item["tool"])
+        # 只做"函数存在"的防御（防整跑崩溃），不是白名单：四个之外的工具照样执行。
+        if not callable(getattr(travel_mcp, tool, None)):
+            notes.append(f"工具不存在，丢弃：{tool!r}")
             continue
-        raw = item.get("args") or {}
-        if not isinstance(raw, dict):
-            continue
-        args = {k: v for k, v in raw.items() if k in GAP_TOOL_ARGS[tool]}
-        why = str(item.get("why") or "")[:60]
-        if tool == "get_amap_poi_search":
-            if not isinstance(args.get("keywords"), str) or not args["keywords"].strip():
-                notes.append(f"POI 缺 keywords，丢弃：{why}")
-                continue
-            args["offset"] = min(int(args.get("offset") or 6), 10)
-            args.setdefault("city", adcode or None)
-            args["show_fields"] = "business"
-        elif tool == "get_amap_direction":
-            bad = None
-            for key in ("origin", "destination"):
-                ref = str(args.get(key) or "")
-                if re.fullmatch(r"\d{2,3}\.\d+,\d{2,3}\.\d+", ref):
-                    # 直接给坐标：必须是台账里已有的那个。模型很乐意编一个经纬度出来，
-                    # 那比"待核实"更糟——它会变成一条看起来实测过的路段。
-                    if ref not in known_coords:
-                        bad = f"路段坐标不在台账里（疑似编造）：{why}"
-                        break
-                elif not ref.strip():
-                    bad = f"路段端点为空：{why}"
-                    break
-                # 端点写地名：此刻可能还不在台账里（同批的 POI 补查会把它带进来），
-                # 所以不在这儿判死，留到 gap_round 解析后再决定丢不丢。
-            if bad:
-                notes.append(bad)
-                continue
-            if args.get("mode") not in GAP_MODES:
-                args["mode"] = "transit"
-            if adcode:
-                args.setdefault("city1", adcode)
-                args.setdefault("city2", adcode)
-        elif tool == "get_amap_weather":
-            if not str(args.get("city") or "").isdigit():
-                args["city"] = adcode or ""
-            if not args["city"]:
-                notes.append("天气补查缺 adcode，丢弃")
-                continue
-            args["extensions"] = "all" if args.get("extensions") == "all" else "base"
-        elif tool == "metaso_web_search":
-            if not isinstance(args.get("q"), str) or not args["q"].strip():
-                notes.append(f"秘塔缺 q，丢弃：{why}")
-                continue
-            args["size"] = min(int(args.get("size") or 5), 5)
-            args["includeRawContent"] = False
+        args = item.get("args")
+        if not isinstance(args, dict):
+            args = {}
         key = json.dumps(args, sort_keys=True, ensure_ascii=False)
         if any(json.dumps(a, sort_keys=True, ensure_ascii=False) == key for _, a in out):
             continue
@@ -516,16 +450,14 @@ def sanitize_gap_asks(asks: list, pois: dict, adcode: str | None, limit: int) ->
 
 def gap_round(context: str, question: str, pois: dict, city: str, adcode: str | None,
               limit: int, thinking: str, quiet: bool) -> dict:
-    """一轮补查：LLM 递清单 → 我们校验 → 按 POI/天气 → 路段 → 秘塔 的顺序执行。
-
-    分三小批而不是一次并行，是为了让路段能用上同批里刚补查到的坐标：模型经常先要
-    "武侯祠"这个 POI、再要"宽窄巷子→武侯祠"的通勤，一起发就解析不到坐标（成都实测）。
-    asks 为空时一次外部调用都不发。
+    """一轮补查：LLM 递清单 → 原样执行，按 POI/天气 → 路段 → 秘塔 分三小批，
+    让路段能用上同批里刚补查到的坐标（成都实测：一起发就解析不到坐标）。
+    limit<=0 表示不限条数，>0 只截清单长度。asks 为空时一次外部调用都不发。
     """
     res = llm(
-        [{"role": "system", "content": SYSTEM_GAP.replace("{limit}", str(limit))},
+        [{"role": "system", "content": SYSTEM_GAP},
          {"role": "user", "content": f"【题目】{question}\n\n{context}\n\n"
-                                     f"【已有数据（地名 | 坐标）】direction 只能引用这些地名：\n"
+                                     f"【已有数据（地名 | 坐标）】direction 可引用这些地名：\n"
                                      + "\n".join(f"  {n} | {p['coord']}" for n, p in list(pois.items())[:40])}],
         max_tokens=700,
         thinking=thinking,
@@ -537,7 +469,9 @@ def gap_round(context: str, question: str, pois: dict, city: str, adcode: str | 
         asks = None
     if not isinstance(asks, list):
         asks = []
-    calls, notes = sanitize_gap_asks(asks, pois, adcode, limit)
+    if limit and limit > 0:
+        asks = asks[:limit]
+    calls, notes = gap_calls(asks)
 
     results: list = []
     first = [c for c in calls if c[0] in ("get_amap_poi_search", "get_amap_weather")]
@@ -563,43 +497,21 @@ def gap_round(context: str, question: str, pois: dict, city: str, adcode: str | 
     results += run_calls(third, quiet)
 
     return {"llm": res, "asks": asks, "calls": calls, "notes": notes, "results": results}
-    """返回 {llm, asks, notes, results}；asks 为空时一次外部调用都不发。"""
-    res = llm(
-        [{"role": "system", "content": SYSTEM_GAP.replace("{limit}", str(limit))},
-         {"role": "user", "content": f"【题目】{question}\n\n{context}\n\n"
-                                     f"【可用数据摘要】只列地名与坐标，补查只能引用这些坐标：\n"
-                                     + "\n".join(f"  {n} | {p['coord']}" for n, p in list(pois.items())[:40])}],
-        max_tokens=700,
-        thinking=thinking,
-    )
-    m = re.search(r"\{.*\}", res["text"], re.S)
-    asks = json.loads(m.group(0)).get("asks") if m else None
-    if not isinstance(asks, list):
-        asks = []
-    calls, notes = sanitize_gap_asks(asks, pois, adcode, limit)
-    amap = [c for c in calls if not c[0].startswith("metaso")]
-    metaso = [c for c in calls if c[0].startswith("metaso")]
-    results = run_calls(amap, quiet) + run_calls(metaso, quiet)
-    return {"llm": res, "asks": asks, "calls": calls, "notes": notes, "results": results}
 
 
 def run_one(tool_name: str, args: dict, quiet: bool):
+    # ⑨已删：秘塔 UPSTREAM_NO_RESULT 不再原参数重发，失败即返回。
     t0 = time.perf_counter()
     fn = getattr(travel_mcp, tool_name)
-    payload = None
-    # 秘塔这条是抖动，不是查询写错：同一句"杭州到绍兴 高铁 二等座 票价 车程"、同一组参数，
-    # 实测连发 5 次全 ok、紧接着两次都"未找到相关数据"。所以见 NO_RESULT 就原样重发一次；
-    # 服务端只缓存成功结果，重试一定是真请求。
-    for attempt in range(2 if tool_name.startswith("metaso_") else 1):
+    try:
         res = fn(**args)
         # metaso_* 是 async：线程池工作线程里没有运行中的 loop，直接 asyncio.run
         if inspect.isawaitable(res):
             res = asyncio.run(res)
         payload = unwrap(res)
-        if payload.get("ok") or payload.get("error_code") != "UPSTREAM_NO_RESULT":
-            break
-        if attempt == 0 and not quiet:
-            print(f"    · {tool_name} 无结果，原参数重发第 2 次", file=sys.stderr)
+    except Exception as exc:  # 补查清单不再校验参数，坏参数只折这一条，别让整跑崩掉
+        payload = {"ok": False, "error_code": "LOCAL_BAD_CALL",
+                   "error_msg": f"{type(exc).__name__}: {exc}"[:150], "data": {}}
     dt = time.perf_counter() - t0
     if not quiet:
         err = "" if payload.get("ok") else \
@@ -615,12 +527,10 @@ def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
 
     用 adcode 前 4 位区分本市与外地：出发地在外市才需要那条跨城腿；同名的本市分校区
     （如"杭州电子科技大学绍兴校区"）应当作景点，不能被当成出发地吃掉。
-    hints 只接受 --fact 里明确点名的车站（高铁停绍兴北这类信息得人工/外部核过才可信）；
-    wiki 正文与秘塔摘要里"绍兴东站""绍兴站"都会被子串命中，实测据此选枢纽会得到一条
-    156 分的上虞方向废腿。出发地在外市时也**不**请求"出发地→枢纽"那条 transit 腿：
-    高德会给出"地铁 1 号线 > 5 号线 > 轨道交通 1 号线，169 分"这种跨城公共交通方案，
+    ⑧已删：出发地在外市时照常请求"出发地→枢纽"的 transit 腿——原实现彻底禁掉这条，
+    是因为高德会给"地铁 1 号线 > 5 号线 > 轨道交通 1 号线，169 分"这种跨城公共交通方案，
     数值真但不能当城际用，模型照着它编高铁车次与票价（实测两轮都栽在这条腿上）。
-    城际那一段交给秘塔车次摘要或 --fact，第一公里宁可留"交通待核实"。
+    budget<=0 表示不限路段条数（③已删）。
     """
     origin = needs.get("origin") or ""
     dest_city = needs.get("destination_city") or ""
@@ -695,9 +605,8 @@ def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
         return []
 
     seed = next((s for s in sights if hit_must(s)), sights[0])
-    # 枢纽优先选 --fact 里点名的车站（高铁停绍兴北这类信息只有人工/外部核过才可信）：
-    # wiki 正文与秘塔摘要里"绍兴东站""绍兴站"都会被子串命中，实测据此选枢纽会得到一条
-    # 156 分的上虞方向废腿。没有明确事实时退回"离主景点最近的站"，比按检索列表顺序取第一个稳。
+    # ①删掉后 hints 里除了 --fact 还混有秘塔摘要：摘要里"绍兴东站/绍兴站"混着出现，
+    # 子串命中会把枢纽选成上虞方向的绍兴东（实测烧掉一条 156 分废腿）——这个风险照旧存在。
     def hinted(s: str) -> str | None:
         cands = [s] + ([s[:-1]] if s.endswith("站") else [])
         hits = [c for c in cands if len(c) >= 3 and c in hints]
@@ -717,23 +626,26 @@ def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
         hub = seed
     chain = [seed]
     remaining = [s for s in sights if s != seed and s != hub]
-    chain_cap = max(3, min(6, int(budget) if budget else 3))
+    # ③已删：budget<=0 时链条覆盖全部合并后的景点，不再限 3~6 个。
+    chain_cap = max(3, min(6, int(budget))) if budget and budget > 0 else len(sights)
     while remaining and len(chain) < chain_cap:
         nxt = min(remaining, key=lambda c: dist(chain[-1], c))
         chain.append(nxt)
         remaining.remove(nxt)
 
     legs = []
-    # 出发地与枢纽分属两座城市时，那条 transit 腿语义是错的：高德会给"地铁 1 号线 > 5 号线 >
-    # 轨道交通 1 号线，169 分"这种跨城公共交通方案，数值真但不能当城际交通用——模型照着它编高铁。
-    # 城际那一段交给秘塔/补充事实的车次票价，市内腿照常保留。
+    # ⑧已删：出发地与枢纽分属两座城市时也照常请求那条 transit 腿。
+    # 原实现禁它是因高德会给"地铁 1 号线 > 5 号线 > 轨道交通 1 号线，169 分"这种
+    # 数值真但不能当城际用的方案，模型照着编高铁车次与票价（实测两轮都栽在这条腿上）。
+    if origin_out and hub != origin_out[0]:
+        legs.append((origin_out[0], hub, "transit"))
     if hub != chain[0]:
         legs.append((hub, chain[0], "walking" if dist(hub, chain[0]) < 2500 else "transit"))
     for a, b in zip(chain, chain[1:]):
         legs.append((a, b, "walking" if dist(a, b) < 2500 else "transit"))
     if len(chain) > 1 and hub != chain[-1]:
         legs.append((chain[-1], hub, "transit"))
-    return legs[: min(4, max(int(budget), 0))]
+    return legs[: int(budget)] if budget and budget > 0 else legs
 
 
 # --------------------------------------------------------------------------
@@ -800,10 +712,10 @@ def main() -> int:
     ap.add_argument("--thinking", default="off", choices=["off", "low", "on"])
     ap.add_argument("--needs", help="跳过抽取，直接给需求 JSON（用于分段计时与调试）")
     ap.add_argument("--skip-llm", action="store_true", help="只做阶段 A/B，把注入 prompt 的上下文写出来")
-    ap.add_argument("--max-external", type=int, default=DEFAULT_MAX_EXTERNAL,
-                    help=f"第一/二波外部 API 调用上限（默认 {DEFAULT_MAX_EXTERNAL}）")
-    ap.add_argument("--max-extra", type=int, default=5,
-                    help="补查轮最多再发几次外部调用，0 = 关掉补查轮（回到 2 次 LLM）")
+    ap.add_argument("--max-external", type=int, default=0,
+                    help="0（默认）= 不限外部调用；>0 才按该值截断 POI 检索（③配额已删）")
+    ap.add_argument("--max-extra", type=int, default=-1,
+                    help="补查轮：-1（默认）不限条数，0 关补查轮（回到 2 次 LLM），N>0 最多 N 条")
     ap.add_argument("--offline", action="store_true", help="不联网、不调模型，只打印计划")
     ap.add_argument("--fact", action="append", default=[],
                     help="补充事实（可重复），用于秘塔不可用时把现查到的城际票价喂给阶段 C")
@@ -820,13 +732,13 @@ def main() -> int:
                  "need_intercity_ticket": True}
         wiki_text, pages = wiki_bundle(needs)
         print(f"[offline] 知识库命中 {len(pages)} 页（上限 {WIKI_MAX_PAGES}）：{pages}\n"
-              f"[offline] 主取数预算 {args.max_external}，三波固定顺序："
-              f"POI（必去点→车站→高铁站→出发地→wiki 点名的景点→主题词→泛景点，"
-              f"上限 {max(4, args.max_external - 2 - MAX_LEGS)} 次）"
-              f"→ 1 次天气 + ≤{MAX_LEGS} 主干路段 → 1 次秘塔（跨城且 wiki 没写高铁票价时）\n"
-              f"[offline] 补查预算 {args.max_extra} 次（LLM 递清单，管线校验后执行；0 关闭）\n"
-              f"[offline] 方案上限 {PLAN_CHAR_LIMIT} 字；"
-              f"模型调用 {'4 次' if args.max_extra else '2 次'}（抽取 + 初稿 [+ 缺口 + 终稿]）；"
+              f"[offline] 取数不设三波顺序与配额（①③已删）：全部 POI 检索 + 1 次秘塔（跨城且 wiki 没写高铁票价时）"
+              f"同波并发 → 1 次天气 + 全部主干路段（秘塔摘要参与选枢纽）"
+              f"{'；--max-external=' + str(args.max_external) + ' 截断 POI' if args.max_external else '（--max-external 0=不限）'}\n"
+              f"[offline] 补查清单原样执行（⑦白名单已删）："
+              f"{'已关闭' if args.max_extra == 0 else ('不限条数' if args.max_extra < 0 else f'最多 {args.max_extra} 条')}\n"
+              f"[offline] 方案上限 {PLAN_CHAR_LIMIT} 字（⑥保留）；防编造三条已删（④）；"
+              f"模型调用 {'4 次' if args.max_extra != 0 else '2 次'}（抽取 + 初稿 [+ 缺口 + 终稿]）；"
               f"注入上下文字符 {len(wiki_text)}")
         return 0
 
@@ -872,13 +784,13 @@ def main() -> int:
     draft, final = llm2["text"], llm2["text"]
     gap_info: dict | None = None
 
-    if args.max_extra > 0:
+    if args.max_extra != 0:
         gap_info = gap_round(context, args.question, ext["pois"], needs["destination_city"],
                              ext.get("adcode"), args.max_extra, args.thinking, quiet=False)
         g = gap_info["llm"]
         llm_calls += 1
-        trace.append(f"D 补查清单     LLM {g['seconds']:.1f}s 要 {len(gap_info['calls'])} 次调用"
-                     f"（清单 {len(gap_info['asks'])} 条，校验后丢弃 {len(gap_info['asks']) - len(gap_info['calls'])} 条）"
+        trace.append(f"D 补查清单     LLM {g['seconds']:.1f}s 发 {len(gap_info['calls'])} 次调用"
+                     f"（清单 {len(gap_info['asks'])} 条）"
                      f" reasoning={g['reasoning_chars']}字")
         print("   " + trace[-1], file=sys.stderr)
         if gap_info["calls"]:
@@ -899,7 +811,7 @@ def main() -> int:
             print("   " + trace[-1], file=sys.stderr)
             final = llm3["text"]
         else:
-            trace.append("E 终稿        补查清单为空或被全部校验丢弃，直接采用初稿")
+            trace.append("E 终稿        补查清单为空或无可执行项，直接采用初稿")
 
     total = time.perf_counter() - t_start
 
@@ -910,7 +822,7 @@ def main() -> int:
         gap_block = ["", "## 补查轮要的数据",
                      "```json", json.dumps(gap_info["asks"], ensure_ascii=False, indent=2), "```"]
         if gap_info["notes"]:
-            gap_block += ["", "校验丢弃说明：", *[f"- {n}" for n in gap_info["notes"]]]
+            gap_block += ["", "丢弃说明：", *[f"- {n}" for n in gap_info["notes"]]]
     out_path.write_text("\n".join([
         f"# 管线规划结果（{total:.0f} s）",
         "",
