@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>行程规划 · LLM-guide-agent</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <div>
+      <h1>行程规划</h1>
+      <p class="sub">先查 wiki · 再用高德/秘塔补数 · 每条结论标来源</p>
+    </div>
+  </div>
+  <nav class="tabs">
+    <button class="tab active" data-view="input" type="button">新规划</button>
+    <button class="tab" data-view="history" type="button">历史</button>
+  </nav>
+</header>
+
+<main>
+  <!-- 视图 1：输入页 -->
+  <section id="view-input" class="view">
+    <form id="plan-form" class="panel" autocomplete="off">
+      <label class="kicker" for="question">题目</label>
+      <textarea id="question" rows="3" maxlength="600"
+        placeholder="例：从杭州出发去成都三日游，预算2000元，想吃川菜、看大熊猫"></textarea>
+      <div class="row">
+        <div class="field">
+          <label class="kicker" for="date">起始日期</label>
+          <input id="date" type="date">
+          <p class="hint">留空按明天推算；天气与车次结论只对当天有效</p>
+        </div>
+        <label class="switch" for="offline">
+          <input id="offline" type="checkbox">
+          <span class="sw-text"><b>离线预演</b><em>只列调用清单，一条外部请求都不发</em></span>
+        </label>
+      </div>
+      <div class="actions">
+        <button id="submit" class="primary" type="submit">开始规划</button>
+        <span id="timer" class="timer" hidden></span>
+      </div>
+      <ol id="progress" class="progress" hidden></ol>
+      <p id="error" class="error" hidden></p>
+    </form>
+
+    <section id="manifest" class="panel" hidden>
+      <h2>将要发出的外部调用</h2>
+      <p class="meta" id="manifest-meta"></p>
+      <ul id="manifest-list" class="list"></ul>
+    </section>
+  </section>
+
+  <!-- 视图 2：历史页 -->
+  <section id="view-history" class="view" hidden>
+    <div class="panel">
+      <h2>最近方案</h2>
+      <p class="meta" id="history-meta"></p>
+      <ul id="history-list" class="list"></ul>
+    </div>
+  </section>
+
+  <!-- 视图 3：详情页 -->
+  <section id="view-plan" class="view" hidden>
+    <div class="panel cover">
+      <button class="ghost back" type="button">← 返回</button>
+      <h2 id="plan-title"></h2>
+      <p class="meta" id="plan-meta"></p>
+      <div id="plan-chips" class="chips"></div>
+    </div>
+
+    <section id="map-block" class="panel map-block" hidden>
+      <div class="map-head">
+        <h2>路线地图</h2>
+        <span class="meta" id="map-note">加载中…</span>
+        <button class="ghost" id="map-toggle" type="button" aria-expanded="true">收起</button>
+      </div>
+      <div id="map-canvas"></div>
+    </section>
+
+    <div id="days"></div>
+
+    <div id="degraded" class="panel degraded" hidden>
+      <h2>结构化输出降级</h2>
+      <p class="meta" id="degraded-reason"></p>
+      <pre id="degraded-text"></pre>
+    </div>
+
+    <div id="sources" class="panel sources"></div>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>已核实 = 出自 wiki 页或本次高德实测；</span>
+  <span>待核实 = 本次现查或数据没取到，只对当场有效。</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -65,8 +65,11 @@ Cline 4.x 的自动批准字段名是 `autoApprove`（旧文档里的 `alwaysAll
 配额，保留人工确认顺便便于统计调用次数。Key 不用写进 `env`：`travel_mcp.py` 启动时会自己加载
 仓库根 `.env`。
 
-运行前的 Key 配置：两个 Key 放在仓库根 `.env`（`AMAP_API_KEY`、`METASO_API_KEY`，已被 `.gitignore`
-排除），`travel_mcp.py` 启动时会自动加载，因此 `.mcp.json` 里不落密钥。变量名清单见 `.env.example`。
+运行前的 Key 配置：密钥统一放仓库根 `.env`（已被 `.gitignore` 排除），`travel_mcp.py` 与
+`plan_agent.py`、`webapp/server.py` 启动时都会自行加载，因此 `.mcp.json` 里不落密钥。
+需要填的四组：`AMAP_API_KEY`、`METASO_API_KEY`、`LLM_BASE_URL/LLM_API_KEY/LLM_MODEL`（管线用）、
+`AMAP_JS_KEY/AMAP_JS_SECURITY_CODE`（网页地图块用，**必须是「Web端(JS API)」类型，与 `AMAP_API_KEY` 不通用**；
+不填则前端隐藏地图块而不是报错）。变量名清单见 `.env.example`。
 
 ## 快速上手
 
@@ -74,8 +77,35 @@ Cline 4.x 的自动批准字段名是 `autoApprove`（旧文档里的 `alwaysAll
    `uv venv .venv` → `uv pip install --python .venv/Scripts/python.exe -r requirements.txt`。
 2. 对 agent 说："摄入杭州的攻略到 wiki" —— agent 会调用秘塔搜索/读取，快照存入 `raw/`，编译成 `wiki/cities/杭州.md` 等页面并更新 `wiki/index.md` 与 `wiki/log.md`。
 3. 规划行程时："帮我规划 3 天杭州行程" —— agent 先读 `wiki/index.md` 定位页面，再调用高德做实时校验。
-4. 想要更快的第一次规划（不依赖 agent 客户端的多轮循环）：
-   `.venv/Scripts/python.exe scripts/plan_agent.py "题目原文"` —— 固定顺序管线，模型只出场 2 次，
-   外部调用上限 9 次，取数段并行。详见 `AGENTS.md` 的"快速管线"一节（需 `.env` 里的 `LLM_*` 三项）。
+4. 想要不依赖 agent 客户端多轮循环的规划：
+   `.venv/Scripts/python.exe scripts/plan_agent.py "题目原文" --date 2026-10-13` ——
+   固定顺序管线（抽取 → 读 wiki → 取数 → 初稿 → 补查 → 终稿），默认 4 次模型往返、
+   单题十几秒；加 `--json` 直接产出结构化方案并落 `.cache/plans/<plan_id>.json`。
+   详见 `AGENTS.md` 的"快速管线"一节（需 `.env` 里的 `LLM_*` 三项）。
+5. 想用网页看结果：
+   `E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --port 8300`
+   然后开 `http://127.0.0.1:8300/`。
+
+## 网页版（webapp/）
+
+`输题目 → 看方案` 的单页前端 + 薄后端，三层都在本仓库内：
+
+```
+浏览器 (webapp/static/)  ──HTTP──>  薄后端 (webapp/server.py, FastAPI)
+                                      │ 直接 import
+                                      v
+                              scripts/plan_agent.py 的 run_plan()
+```
+
+- **输入页**：题目 + 日期 + "离线预演"开关（只列将要发出的外部调用清单，**0 次外部请求**）；
+  规划要跑 10~30 秒，等待期间轮询 `/api/job/running` 显示阶段进度。
+- **详情页**：按天分块的时间线卡片（时间列 → 节点图标 → 卡片），中转渲染成卡片之间的胶囊；
+  每卡片带景点照片、评分、开放时间、票价，点开展开大图与坐标明细。
+- **来源可追溯**：每条结论带 `verified` + `source`（`wiki` / `amap_poi` / `amap_direction` / `metaso` / `none`），
+  没核实到的显示"待核实"角标而不是编一个数；页尾列出命中的 wiki 页与**失败的外部调用**（不静默吞）。
+- **地图块**：高德 JS API（`/api/config` 下发 key），marker 用条目坐标、折线用本次实测 polyline；
+  没配 key 或 key 失效时显示说明文字，时间线照常可用。
+- 只跑在本机，**无鉴权、不要挂公网**；网页走的是 Query 路径，**不写 `wiki/`、不新增 `raw/` 快照**。
+- 设计与逐条实测校准见 `docs/frontend-plan.md`。
 
 详细规则见 [AGENTS.md](AGENTS.md) 与 [schema/schema.md](schema/schema.md)。

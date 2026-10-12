@@ -5,6 +5,7 @@
 ⑤预算两行制 ⑦补查白名单与参数夹取 ⑧跨城 transit 腿禁令 ⑨秘塔 NO_RESULT 原参数重发
 ⑩POI 强制 show_fields=business。保留：②不碰 read_index(seeds/all) 大清单
 ⑥紧凑格式与 ≤1000 字上限 ⑪thinking=disabled。
+⑩以 `business,photos` 的形式因前端渲染依赖被带回一次（照片与开放时间是卡片必需项）。
 
 阶段：
   A 需求抽取   LLM #1，关思考，小输出
@@ -13,12 +14,15 @@
   C 初稿        LLM #2，紧凑格式，≤1000 字
   D 补查        LLM #3 递缺口清单，清单原样执行（不分白名单）
   E 终稿        LLM #4，带着补查数据改写初稿
+  F 结构化      --json 时把终稿转成 final_plan；题目要 N 天而模型全塞一天就补一轮 LLM #5
 
 用法:
     .venv/Scripts/python.exe scripts/plan_agent.py "题目原文" [--date 2026-10-08]
     .venv/Scripts/python.exe scripts/plan_agent.py "题目原文" --offline   # 只打印调用清单
     .venv/Scripts/python.exe scripts/plan_agent.py "题目" --fact '杭州东→绍兴北 二等座 24 元'
         # --fact 可重复：agent 侧核实过的事实，点名的车站会被选成到达枢纽
+    .venv/Scripts/python.exe scripts/plan_agent.py "题目" --json
+        # 阶段 C 走 JSON 模式，方案落 .cache/plans/<plan_id>.json（webapp 用同一份 run_plan）
     可选：--thinking off|low|on  --max-external 0（0=不限）
           --max-extra -1（-1=补查不限，0=关补查轮，N=最多 N 次）
           --skip-llm  --needs '<JSON>'  --out .cache/plan_run.md
@@ -33,6 +37,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -64,18 +69,20 @@ import travel_mcp  # noqa: E402
 import wiki_mcp  # noqa: E402
 
 EXTRACTION_SCHEMA = """{"origin":"","origin_city":"","destination_city":"","intercity":true,
-"day_trip":true,"budget_yuan":300,"themes":["美食"],"must_visit":["校区参观"],
+"day_trip":true,"days":3,"budget_yuan":300,"themes":["美食"],"must_visit":["校区参观"],
 "need_intercity_ticket":true,"date":"YYYY-MM-DD"}"""
 
 # 保留 ⑥：输出篇幅仍是硬上限；其余配额（路段条数 / 外部调用数）已删。
 PLAN_CHAR_LIMIT = 1000      # 阶段 C 的字数上限
 WIKI_MAX_PAGES = 8          # 注入上下文的 wiki 页数
 WIKI_MAX_CHARS = 14000      # wiki 块总预算
+POI_SHOW_FIELDS = "business,photos"   # 前端卡片要 rating/opentime/photo
 
 SYSTEM_EXTRACT = (
     "你只做需求抽取，不要规划、不要解释。读用户题目，只输出一个 JSON 对象，字段与含义：\n"
     + EXTRACTION_SCHEMA
     + "\n规则：origin 是出发地原名，origin_city 是它所在的城市；destination_city 只写城市名；"
+      "days 是题目要求的总天数（含首尾日），一日游填 1，题目没说清填 1；"
       "budget_yuan 没有就填 0；need_intercity_ticket 只要 intercity 为 true 就置 true"
       "（不要等题目明说票价）。"
       "不要输出 JSON 以外的任何字符。"
@@ -86,6 +93,7 @@ SYSTEM_PLAN = (
     "你是行程规划器。依据后面给出的【知识库】【实时数据】输出当天方案，要求：\n"
     "1. 只输出紧凑方案本身：每段一行，形如 'HH:MM-HH:MM 地点 | 交通方式与耗时 | 花费'；\n"
     "2. 严禁复述工具返回内容、严禁解释你的推理、严禁逐条标注来源；\n"
+    "2b. 【POI】给的人均是消费水平，不是门票价：景点花费没在数据里明确出现过就写待核实；\n"
     f"3. 总长不超过 {PLAN_CHAR_LIMIT} 字：每段一行可以短，但题目要求的内容类别（景点、餐饮、住宿、往返）"
     "都要各自出现。\n"
 )
@@ -96,8 +104,36 @@ SYSTEM_GAP = (
     "找出初稿里明显单薄或缺数据的地方，按 JSON 输出：\n"
     '{"asks":[{"tool":"get_amap_poi_search|get_amap_direction|get_amap_weather|'
     'metaso_web_search","args":{...},"why":"缺什么"}]}\n'
+    "args 的键名必须照抄工具签名，写错就整条作废：\n"
+    "  get_amap_poi_search: keywords, city, offset, show_fields\n"
+    "  get_amap_direction: origin, destination, mode(walking|transit|driving), city1, city2\n"
+    "  get_amap_weather: city(adcode), extensions\n"
+    "  metaso_web_search: q, size, scope（问题放 q，不要写 query）\n"
     "优先补金额最大的那几笔缺口（城际车票、门票、当日住宿）。"
     "没有值得补的就输出 {\"asks\":[]}。只输出 JSON。"
+)
+
+
+SYSTEM_PLAN_JSON = (
+    # 前端渲染用的结构化输出（docs/frontend-plan.md 第 3 节）。格式约束与 SYSTEM_PLAN 同源（⑥），
+    # 只是把"每段一行"换成"按天分组的 JSON 对象"——分块由模型直接给结构，
+    # 比"平铺数组再让程序猜哪天结束"少一轮补救（第 9 节那个坑）。
+    "你是行程规划器。依据后面给出的【知识库】【实时数据】，只输出一个 JSON 对象，结构：\n"
+    '{"days":[{"day":1,"theme":"当天主题","items":[{"start_time":"HH:MM","end_time":"HH:MM",'
+    '"type":"attraction|meal|transit|hotel","name":"","transport":"","cost":55,'
+    '"tip":"","source":"wiki|amap|metaso|none"}]}]}\n'
+    "规则：\n"
+    "1. 题目是 N 天就给 N 个 day，day 从 1 连续编号；一日游就一个 day；每天给一个 theme；\n"
+    "2. 景点/餐饮/住宿的 name 必须照抄【POI】或【知识库】里出现的名称，不要改写或加简称——"
+    "坐标与照片由程序按这个名字回查；\n"
+    "3. 交通段 name 写 '甲→乙'，transport 写方式与耗时；没有任何实测数据时 transport 写\"交通待核实\"；\n"
+    "4. cost 只填有依据的数字（单位元）：【POI】【路段】或【网页摘要】里给过的才填，免费填 0，"
+    "查不到就填 null，不许估算；【POI】里的人均是消费水平不是门票价，"
+    "景点没给过明确票价就别把人均填进 cost；\n"
+    "5. source：这条的依据出自【知识库】写 wiki，出自【POI】【路段】【天气】写 amap，"
+    "出自【网页摘要】写 metaso，凭空来的写 none；\n"
+    f"6. 严禁解释、严禁 markdown 代码块以外的字符，总长不超过 {PLAN_CHAR_LIMIT} 字，"
+    "但题目要求的类别（景点、餐饮、住宿、往返）都要出现。\n"
 )
 
 
@@ -226,8 +262,10 @@ def wiki_sights(wiki_text: str, needs: dict, limit: int = 3) -> list[str]:
     """
     names: list[str] = []
     for m in re.finditer(r"^\|\s*(?:see|do|eat)\s*\|\s*([^|]{2,26}?)\s*\|", wiki_text, re.M):
-        n = m.group(1).strip()
-        if n and n not in ("缺", "-") and n not in names:
+        # 单元格里常见"秋瑾故居，含秋瑾烈士纪念碑"这种带说明的名字（绍兴页实测），
+        # 整串拿去搜高德会搜不到；逗号/顿号/括号之前的部分才是地点本体。
+        n = re.split(r"[，,、；;（(]", m.group(1).strip())[0].strip()
+        if len(n) >= 2 and n not in ("缺", "-") and n not in names:
             names.append(n)
     must = needs.get("must_visit") or []
     themes = needs.get("themes") or []
@@ -265,11 +303,22 @@ def metaso_webpages(payload: dict) -> list[dict]:
 
 
 def poi_call(keywords: str, city: str | None = None, offset: int = 5) -> tuple[str, dict]:
-    # ⑩已删：不再强制 show_fields=business（v5 不带它就没有 biz_ext，票价/开放时间留空）。
-    args: dict = {"keywords": keywords, "offset": offset}
+    # ⑩已删后又带回一次：网页卡片要照片与开放时间，所以这里固定请求 business,photos。
+    # 理由是渲染依赖，不是规范回潮——票价照样指望不上（v5 的 biz_ext.cost 实测为空）。
+    args: dict = {"keywords": keywords, "offset": offset, "show_fields": POI_SHOW_FIELDS}
     if city:
         args["city"] = city
     return "get_amap_poi_search", args
+
+
+def first_photo(poi: dict) -> str | None:
+    """v5 show_fields=...,photos 才有 poi["photos"]；老返回体没这个键就是 None，前端自行降级。
+    高德给的是 http 链接，实测在本机 http 直接超时、同 URL 换 https 就 200——统一升级成 https。"""
+    for ph in poi.get("photos") or []:
+        url = (ph or {}).get("url")
+        if url:
+            return url.replace("http://", "https://", 1) if url.startswith("http://") else url
+    return None
 
 
 def collect_pois(results: list, pois: dict[str, dict], city: str) -> str | None:
@@ -290,6 +339,7 @@ def collect_pois(results: list, pois: dict[str, dict], city: str) -> str | None:
                                         "price": (p.get("biz_ext") or {}).get("price"),
                                         "cost": (p.get("biz_ext") or {}).get("cost") or biz.get("cost"),
                                         "rating": biz.get("rating"),
+                                        "photo": first_photo(p),
                                         "opentime": p.get("opentime") or biz.get("opentime_week")})
     return adcode
 
@@ -325,15 +375,12 @@ def metaso_summaries(payload: dict, limit: int = 3) -> list[str]:
     return [t for _, t in rows[:limit]]
 
 
-def gather_external(needs: dict, wiki_text: str, max_external: int, quiet: bool,
-                    facts: list[str] | None = None) -> dict:
-    """①③已删：不再分三波、不再按类型配额。POI 与秘塔同一波并发，秘塔摘要也参与选枢纽
-    （原实现特意把秘塔压到末波、只让 --fact 参与决策，是为了防站名把枢纽带偏——这条保护已移除）。
-    天气与路段仍排在 POI 之后，那是坐标依赖，不是顺序约束。
-    max_external<=0 表示不限；>0 时只按截断顺序砍 POI。
+def plan_wave1(needs: dict, wiki_text: str, max_external: int) -> list[tuple[str, dict]]:
+    """第一波取数清单（POI + 秘塔）。天气与路段要等 POI 坐标回来才能拼，所以不在这里。
+    单独拆出来是为了 web 的"离线预演"：把清单原样给用户看，一条外部请求都不发。
 
-    取数面按 themes 与 must_visit 全量铺开：只搜 `{city}景点` 时，题目里的"美食"根本没进检索，
-    模型最后那句"绍兴菜午餐"就是凭空写的（成都那次实测：9 次调用里 0 次查过餐厅）。
+    排列只是为了 --max-external 截断时先砍谁：必去点 → 车站 → 高铁站 → 出发地
+    → wiki 点名的景点 → 主题词 → 泛景点。
     """
     city = needs["destination_city"]
     origin = needs.get("origin") or ""
@@ -343,7 +390,6 @@ def gather_external(needs: dict, wiki_text: str, max_external: int, quiet: bool,
         and "高铁" not in wiki_text
 
     calls: list[tuple[str, dict]] = []
-    # 排列只是为了 --max-external 截断时先砍谁：必去点 → 车站 → 高铁站 → 出发地 → wiki 点名的景点 → 主题词 → 泛景点。
     for kw in (needs.get("must_visit") or [])[:2]:
         calls.append(poi_call(kw if city in kw else f"{city}{kw}", city, 3))
     calls.append(poi_call(f"{city}站", city, 4))
@@ -365,8 +411,23 @@ def gather_external(needs: dict, wiki_text: str, max_external: int, quiet: bool,
                     if need_ticket else [])
     if max_external and max_external > 0:
         calls = calls[:max(4, max_external - len(metaso_calls))]
+    return calls + metaso_calls
 
-    wave1 = run_calls(calls + metaso_calls, quiet)
+
+def gather_external(needs: dict, wiki_text: str, max_external: int, quiet: bool,
+                    facts: list[str] | None = None) -> dict:
+    """①③已删：不再分三波、不再按类型配额。POI 与秘塔同一波并发，秘塔摘要也参与选枢纽
+    （原实现特意把秘塔压到末波、只让 --fact 参与决策，是为了防站名把枢纽带偏——这条保护已移除）。
+    天气与路段仍排在 POI 之后，那是坐标依赖，不是顺序约束。
+    max_external<=0 表示不限；>0 时只按截断顺序砍 POI。
+
+    取数面按 themes 与 must_visit 全量铺开：只搜 `{city}景点` 时，题目里的"美食"根本没进检索，
+    模型最后那句"绍兴菜午餐"就是凭空写的（成都那次实测：9 次调用里 0 次查过餐厅）。
+    """
+    city = needs["destination_city"]
+    calls = plan_wave1(needs, wiki_text, max_external)
+
+    wave1 = run_calls(calls, quiet)
 
     pois: dict[str, dict] = {}
     adcode = collect_pois(wave1, pois, city)
@@ -380,7 +441,10 @@ def gather_external(needs: dict, wiki_text: str, max_external: int, quiet: bool,
     wave2: list[tuple[str, dict]] = []
     if adcode:
         wave2.append(("get_amap_weather", {"city": adcode, "extensions": "all"}))
-    legs = pick_legs(needs, pois, 0, adcode, hints)
+    # ③删了管线内部的配额，但 web 入口传的 max_external 得真的兜住总量：
+    # 绍兴一日游实测，只截 POI 的话路段会铺到 15 条，23+7=30 次把软上限穿过去。
+    leg_budget = max(0, max_external - len(wave1) - len(wave2)) if max_external and max_external > 0 else 0
+    legs = pick_legs(needs, pois, leg_budget, adcode, hints)
     for a_name, b_name, mode in legs:
         a, b = pois[a_name], pois[b_name]
         wave2.append(("get_amap_direction",
@@ -402,7 +466,9 @@ def run_calls(calls: list[tuple[str, dict]], quiet: bool) -> list:
     out = []
     if not calls:
         return out
-    with cf.ThreadPoolExecutor(max_workers=min(6, len(calls))) as pool:
+    # 并发 2：个人 key 的高德并发上限是 3。实测 6 并发一轮挂 5 条，3 并发一轮挂 2 条
+    # （限流是突发起不来的那种，重发也常撞上同一波），所以宁可多花约 1 秒也别烧配额。
+    with cf.ThreadPoolExecutor(max_workers=min(2, len(calls))) as pool:
         futures = [pool.submit(run_one, name, args, quiet) for name, args in calls]
         for f in futures:
             out.append(f.result())
@@ -441,6 +507,9 @@ def gap_calls(asks: list) -> tuple[list, list[str]]:
         args = item.get("args")
         if not isinstance(args, dict):
             args = {}
+        # 秘塔的参数名是 q，模型按直觉写 query（实测一轮 4 条全因此作废）。
+        if tool.startswith("metaso") and "q" not in args and args.get("query"):
+            args = {**args, "q": args.pop("query")}
         key = json.dumps(args, sort_keys=True, ensure_ascii=False)
         if any(json.dumps(a, sort_keys=True, ensure_ascii=False) == key for _, a in out):
             continue
@@ -501,7 +570,28 @@ def gap_round(context: str, question: str, pois: dict, city: str, adcode: str | 
 
 def run_one(tool_name: str, args: dict, quiet: bool):
     # ⑨已删：秘塔 UPSTREAM_NO_RESULT 不再原参数重发，失败即返回。
+    # 例外是高德的 CUQPS（个人 key 的并发上限）——一波 6 并发实测 5/18 条栽在它上面，
+    # 那不是数据没有，是请求被挤掉了，等半秒重发一次就回得来。
+    attempts = 0
     t0 = time.perf_counter()
+    while True:
+        attempts += 1
+        payload = _run_once(tool_name, args)
+        msg = str(payload.get("error_msg") or "")
+        if attempts == 1 and not payload.get("ok") and "CUQPS" in msg:
+            time.sleep(0.6)
+            continue
+        break
+    if not quiet:
+        err = "" if payload.get("ok") else \
+            f" err={payload.get('error_code')}:{msg[:80]}"
+        retry = "" if attempts == 1 else " (CUQPS 重发)"
+        print(f"    · {tool_name} {json.dumps(args, ensure_ascii=False)[:70]} "
+              f"ok={payload.get('ok')} {time.perf_counter() - t0:.1f}s{retry}{err}", file=sys.stderr)
+    return tool_name, args, payload
+
+
+def _run_once(tool_name: str, args: dict):
     fn = getattr(travel_mcp, tool_name)
     try:
         res = fn(**args)
@@ -512,13 +602,7 @@ def run_one(tool_name: str, args: dict, quiet: bool):
     except Exception as exc:  # 补查清单不再校验参数，坏参数只折这一条，别让整跑崩掉
         payload = {"ok": False, "error_code": "LOCAL_BAD_CALL",
                    "error_msg": f"{type(exc).__name__}: {exc}"[:150], "data": {}}
-    dt = time.perf_counter() - t0
-    if not quiet:
-        err = "" if payload.get("ok") else \
-            f" err={payload.get('error_code')}:{str(payload.get('error_msg'))[:80]}"
-        print(f"    · {tool_name} {json.dumps(args, ensure_ascii=False)[:70]} "
-              f"ok={payload.get('ok')} {dt:.1f}s{err}", file=sys.stderr)
-    return tool_name, args, payload
+    return payload
 
 
 def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
@@ -656,10 +740,11 @@ def build_context(needs: dict, wiki_text: str, ext: dict, facts: list[str] | Non
     lines = [f"【需求】{json.dumps({k: v for k, v in needs.items() if not k.startswith('_')}, ensure_ascii=False)}"]
     lines.append(f"【知识库】\n{wiki_text[:WIKI_MAX_CHARS]}")
     if ext["pois"]:
-        lines.append("【POI（坐标/开放时间/评分，来自高德 v5；v5 不返回门票价格）】")
+        # business.cost 是人均消费，对餐饮/住宿有用，对景点是游客综合消费——别当门票用（沈园实测 163）。
+        lines.append("【POI（坐标/开放时间/评分，来自高德 v5；v5 不返回门票价格，人均≠票价）】")
         for n, p in list(ext["pois"].items())[:30]:
             price = p.get("price") or p.get("cost") or "未给"
-            lines.append(f"  {n} | {p['lon']},{p['lat']} | 票价={price} "
+            lines.append(f"  {n} | {p['lon']},{p['lat']} | 人均={price} "
                          f"评分={p.get('rating') or '未给'} | 开放={str(p.get('opentime'))[:70]}")
     for tool_name, args, payload in ext["results"]:
         d = payload.get("data") or {}
@@ -705,6 +790,520 @@ def build_context(needs: dict, wiki_text: str, ext: dict, facts: list[str] | Non
     return "\n".join(lines)
 
 
+# --------------------------------------------------------------------------
+# 阶段 F：结构化输出（docs/frontend-plan.md 第 3 节的 final_plan）
+# --------------------------------------------------------------------------
+
+MAX_PATH_POINTS = 300   # 一条腿的实测折线抽稀到这个点数，够画且不让 JSON 爆掉
+
+
+def extract_json(text: str):
+    """模型偶尔包 ```json 或前后带一句话：从第一个 { 或 [ 起做括号配对扫描，
+    取第一个能解析成功的 JSON 值。比正则贪婪匹配可靠（摘要里也出现过嵌套花括号）。"""
+    for start, open_ch in [(i, c) for i, c in enumerate(text or "") if c in "[{"]:
+        close_ch = "]" if open_ch == "[" else "}"
+        depth, in_str, esc = 0, False, False
+        for j in range(start, len(text)):
+            ch = text[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+            elif ch == '"':
+                in_str = True
+            elif ch == open_ch:
+                depth += 1
+            elif ch == close_ch:
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:j + 1])
+                    except json.JSONDecodeError:
+                        break
+    return None
+
+
+def leg_index(ext: dict) -> list[dict]:
+    """把已请求的路段结果摊成可回查的清单：起终点名、耗时、票价、实测折线。
+    transit 只取第一个方案（与 build_context 给模型看的保持一致）。"""
+    coord_names = {p["coord"]: n for n, p in ext["pois"].items()}
+    out = []
+    for tool_name, args, payload in ext["results"]:
+        if tool_name != "get_amap_direction" or not payload.get("ok"):
+            continue
+        route = (payload.get("data") or {}).get("route") or {}
+        node = (route.get("transits") or [None])[0] or (route.get("paths") or [None])[0]
+        if node is None:
+            continue
+        cost = node.get("cost") or {}
+        duration = cost.get("duration") or node.get("duration")
+        fee = _num(cost.get("transit_fee"))
+        out.append({
+            "a": coord_names.get(args.get("origin"), args.get("origin")),
+            "b": coord_names.get(args.get("destination"), args.get("destination")),
+            "mode": args.get("mode"),
+            "minutes": max(1, int(float(duration or 0)) // 60) if duration else None,
+            "fee": fee,
+            "path": polyline_of(node),
+        })
+    return out
+
+
+def polyline_of(node: dict) -> list[list[float]]:
+    """沿返回体的字段顺序拼出实测折线。v5 把 polyline 放在 paths[].steps[].polyline
+    与 transit segments[].walking.steps[] / segments[].bus.buslines[] 里，
+    层级随 mode 变，所以按出现顺序递归收集，不认死路径。"""
+    chunks: list[str] = []
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k == "polyline" and isinstance(v, str) and v:
+                    chunks.append(v)
+                else:
+                    walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+
+    walk(node)
+    pts: list[list[float]] = []
+    for chunk in chunks:
+        for pair in chunk.strip().rstrip(";").split(";"):
+            x, _, y = pair.partition(",")
+            try:
+                lon, lat = float(x), float(y)
+            except ValueError:
+                continue
+            if pts and pts[-1] == [lon, lat]:
+                continue
+            pts.append([lon, lat])
+    if len(pts) > MAX_PATH_POINTS:
+        stride = -(-len(pts) // MAX_PATH_POINTS)
+        pts = pts[::stride] + [pts[-1]]
+    return pts
+
+
+def ledger_lookup(name: str, pois: dict) -> tuple[dict | None, bool]:
+    """模型写的条目名回查高德台账，返回 (条目, 是否精确)。
+
+    模糊匹配只在"唯一候选"时才认：绍兴那次实测，模型写"沈园"，台账里含"沈园"的有
+    4 家"沈园堂"酒店加一个公交站，而真景点那条叫"沈氏园"（字面不含"沈园"）——
+    按最长匹配就给了酒店的照片、坐标和 163 元人均。歧义时宁可让卡片空着，
+    前端按 null 降级，也比渲染出一个错的地方强。
+    """
+    if not isinstance(name, str) or not name:
+        return None, False
+    if name in pois:
+        return pois[name], True
+    hits = [n for n in pois if name in n or n in name]
+    return (pois[hits[0]], False) if len(hits) == 1 else (None, False)
+
+
+def match_leg(name: str, transport: str, legs: list[dict]) -> dict | None:
+    """交通段回查实测路段：按 name/transport 里出现的端点名计数，两端都命中才算数。"""
+    text = f"{name} {transport}"
+    best, score = None, 0
+    for leg in legs:
+        s = int(bool(leg["a"] and leg["a"] in text)) + int(bool(leg["b"] and leg["b"] in text))
+        if s > score:
+            best, score = leg, s
+    return best if score >= 2 else None
+
+
+def assign_days(segments: list[dict], needs: dict, thinking: str, quiet: bool) -> tuple[list, int]:
+    """分块兜底（第 9 节决定：再花一轮 LLM 按天整理，而不是降级成单 day）。
+    只让它搬运条目，不许改字段内容。"""
+    res = llm(
+        [{"role": "system", "content":
+            "你只做按天分组：给你一份行程条目 JSON 数组，把它们分到 1..N 天里，"
+            "输出 {\"days\":[{\"day\":1,\"items\":[...]}]}。"
+            "条目必须原样搬运，不许增删、不许改字段值，只能改 day。只输出 JSON。"},
+         {"role": "user", "content":
+             f"题目天数：{needs.get('destination_city') or ''} 共 "
+             f"{needs.get('days') or '未给，按行程跨度推算'} 天\n\n"
+             + json.dumps(segments, ensure_ascii=False)}],
+        max_tokens=2400, thinking=thinking)
+    if not quiet:
+        print(f"    · 分块补轮 LLM {res['seconds']:.1f}s reasoning={res['reasoning_chars']}字",
+              file=sys.stderr)
+    got = extract_json(res["text"])
+    days = (got or {}).get("days") if isinstance(got, dict) else None
+    if not isinstance(days, list) or not days:
+        return [{"day": 1, "items": segments}], 1
+    moved = sum(len(d.get("items") or []) for d in days if isinstance(d, dict))
+    if moved != len(segments):
+        # 少搬运就等于丢条目，这种"整理"比不分块更糟，退回原样。
+        return [{"day": 1, "items": segments}], 1
+    out = []
+    for i, d in enumerate(days, start=1):
+        items = [it for it in (d.get("items") or []) if isinstance(it, dict)]
+        if items:
+            out.append({"day": int(d.get("day") or i), "theme": d.get("theme"), "items": items})
+    return (out or [{"day": 1, "items": segments}]), 1
+
+
+def chunk_days(segments: list[dict], needs: dict, thinking: str, quiet: bool) -> tuple[list, int]:
+    """按模型给的 day 分块。题目明说 N 天、条目却全挤在 day=1 时判为分块失败，
+    补一轮 LLM 按天整理（第 9 节的决定）。返回 (days, 额外 LLM 次数)。"""
+    days = sorted({s.get("day") for s in segments if isinstance(s.get("day"), int)})
+    if len(days) > 1:
+        return [{"day": d,
+                 "theme": next((s.get("theme") for s in segments
+                                if s.get("day") == d and s.get("theme")), None),
+                 "items": [s for s in segments if s.get("day") == d]} for d in days], 0
+    expected = int(needs.get("days") or 0)
+    if expected <= 1 or len(segments) < 8:
+        # 单日题本就该是一个 day；条目太少时也值不回一轮 LLM。
+        return [{"day": 1, "theme": None, "items": segments}], 0
+    return assign_days(segments, needs, thinking, quiet)
+
+
+def weather_rows(ext: dict) -> tuple[list[dict], str]:
+    for _tool, _args, payload in ext["results"]:
+        if not payload.get("ok"):
+            continue
+        for fc in (payload.get("data") or {}).get("forecasts") or []:
+            rows = [{"date": c.get("date"), "day": c.get("dayweather"),
+                     "night": c.get("nightweather"),
+                     "temp_range": f"{c.get('nighttemp')}~{c.get('daytemp')}℃",
+                     # daypower 本身就是 "1-3" 这种区间，再拼 nightpower 会变成 "1-3-1-3级"。
+                     "wind": (c.get("daypower") if c.get("daypower") == c.get("nightpower")
+                              else f"{c.get('daypower')}-{c.get('nightpower')}") + "级"}
+                    for c in fc.get("casts") or []]
+            if rows:
+                return rows, f"高德天气预报，发布 {fc.get('reporttime')}，只对当场有效"
+    return [], "未取得天气预报"
+
+
+def _num(v):
+    """高德给的是字符串（"55.00"），模型给的是数字或 null；统一成 int/float/None。"""
+    if isinstance(v, bool) or v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return v
+    m = re.search(r"-?\d+(?:\.\d+)?", str(v))
+    return float(m.group(0)) if m else None
+
+
+def normalize_groups(got) -> list[dict]:
+    """把模型输出归一成 [{day, theme, items[]}]。两种形态都要认：
+    新 prompt 的 {"days":[{day,theme,items}]}，以及旧/偷懒的平铺数组。"""
+    if isinstance(got, dict) and isinstance(got.get("days"), list):
+        groups = []
+        for i, d in enumerate(got["days"], start=1):
+            if not isinstance(d, dict):
+                continue
+            day_no = d["day"] if isinstance(d.get("day"), int) else i
+            items = [s for s in (d.get("items") or []) if isinstance(s, dict) and s.get("name")]
+            for s in items:
+                s.setdefault("day", day_no)
+            if items:
+                groups.append({"day": day_no, "theme": d.get("theme"), "items": items})
+        return groups
+    if isinstance(got, list):
+        segs = [s for s in got if isinstance(s, dict) and s.get("name")]
+        if not segs:
+            return []
+        days = sorted({s["day"] if isinstance(s.get("day"), int) else 1 for s in segs})
+        return [{"day": d, "theme": None,
+                 "items": [s for s in segs
+                           if (s["day"] if isinstance(s.get("day"), int) else 1) == d]}
+                for d in days]
+    return []
+
+
+def call_failures(ext: dict) -> list[dict]:
+    """第 5 节的失败语义：哪条外部调用没成、为什么，原样带进 final_plan 给前端标出来，
+    不静默吞。补查轮的结果也在 ext["results"] 里，所以这里天然是全量。"""
+    return [{"tool": tool,
+             "args": json.dumps(args, ensure_ascii=False)[:90],
+             "error_code": payload.get("error_code"),
+             "error_msg": str(payload.get("error_msg") or "")[:140]}
+            for tool, args, payload in ext["results"] if not payload.get("ok")]
+
+
+def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: list,
+                    date_used: str, llm_calls: int, seconds: float,
+                    thinking: str, quiet: bool) -> dict:
+    plan_id = f"{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}_{needs.get('destination_city') or 'plan'}"
+    got = extract_json(text)
+    groups = normalize_groups(got)
+    if not groups:
+        return {"plan_id": plan_id, "question": question, "degraded": True,
+                "markdown": text,
+                "reason": "阶段 C 没给出可解析的 JSON，前端按 Markdown 原文渲染",
+                "sources": {"wiki_pages": pages, "external_calls": ext["external_count"],
+                            "llm_calls": llm_calls, "seconds": round(seconds, 1),
+                            "failures": call_failures(ext)}}
+    legs = leg_index(ext)
+    forecast, weather_note = weather_rows(ext)
+    extra_llm = 0
+    expected = int(needs.get("days") or 0)
+    flat = [s for g in groups for s in g["items"]]
+    if expected > 1 and len(groups) == 1 and len(flat) >= 8:
+        # 题目要 N 天，模型却全塞进一天：按第 9 节的决定补一轮 LLM 整理，而不是降级成单 day。
+        try:
+            groups, extra_llm = chunk_days(flat, needs, thinking, quiet)
+        except Exception as exc:   # 补轮挂了不影响出方案，退回原分组
+            groups, extra_llm = [{"day": 1, "theme": None, "items": flat}], 0
+            print(f"    · 分块补轮失败，沿用原分组：{type(exc).__name__}: {exc}", file=sys.stderr)
+
+    start = date_used
+    out_days = []
+    for d in groups:
+        items = []
+        for seg in d["items"]:
+            src = str(seg.get("source") or "none")
+            cost = _num(seg.get("cost"))
+            row = {"type": seg.get("type") or "attraction", "name": seg["name"],
+                   "start_time": seg.get("start_time"), "end_time": seg.get("end_time"),
+                   "transport": seg.get("transport"), "cost": cost,
+                   "tip": seg.get("tip"), "photo": None, "path": None,
+                   "location": None, "rating": None, "open_time": None,
+                   "verified": src in ("wiki", "amap"),
+                   "source": src if src in ("wiki", "amap", "metaso") else "none"}
+            # 交通段不做 POI 台账回查：它的 name 是"甲→乙"，模糊匹配会命中终点，
+            # 于是给一张交通卡片贴上终点的照片与开放时间。地理信息由 path 承担。
+            if row["type"] == "transit":
+                poi, exact = None, False
+            else:
+                poi, exact = ledger_lookup(row["name"], ext["pois"])
+            if poi:
+                row["location"] = {"lng": float(poi["lon"]), "lat": float(poi["lat"])}
+                row["rating"] = _num(poi.get("rating"))
+                row["open_time"] = poi.get("opentime")
+                # 照片只在精确命中时给：卡片上贴错地方的图比空白更糟（前端按 null 降级）。
+                row["photo"] = poi.get("photo") if exact else None
+                # business.cost 对餐饮/住宿是人均消费（能用），对景点是游客综合消费（不能用）；
+                # 沈园那次就是被这条回填塞进过 163 元，票价一律只认模型从摘要里取到的。
+                if (exact and row["cost"] is None and row["type"] in ("meal", "hotel")
+                        and _num(poi.get("price") or poi.get("cost")) is not None):
+                    row["cost"] = _num(poi.get("price") or poi.get("cost"))
+                    row["source"], row["verified"] = "amap_poi", True
+                elif src == "wiki":
+                    row["source"], row["verified"] = "wiki+amap", True
+            leg = match_leg(row["name"], row["transport"] or "", legs) if row["type"] == "transit" else None
+            if leg:
+                row["path"] = leg["path"]
+                row["verified"] = True
+                row["source"] = "amap_direction"
+                if row["cost"] is None and leg["fee"] is not None:
+                    row["cost"] = leg["fee"]
+            items.append(row)
+        date = (datetime.strptime(start, "%Y-%m-%d") + timedelta(days=d["day"] - 1)).strftime("%Y-%m-%d")
+        out_days.append({"day": d["day"], "date": date, "theme": d.get("theme"), "timeline": items})
+
+    return {
+        "plan_id": plan_id,
+        "question": question,
+        "destination": needs.get("destination_city"),
+        "origin": needs.get("origin"),
+        "days_count": len(out_days),
+        "start_date": start,
+        "end_date": out_days[-1]["date"],
+        "budget_yuan": needs.get("budget_yuan") or 0,
+        "weather_forecast": forecast,
+        "weather_note": weather_note,
+        "sources": {"wiki_pages": pages, "external_calls": ext["external_count"],
+                    "llm_calls": llm_calls + extra_llm, "seconds": round(seconds, 1),
+                    "failures": call_failures(ext)},
+        "days": out_days,
+        "degraded": False,
+    }
+
+
+def resolve_start_date(question_date: str | None, needs: dict) -> str:
+    """天气与"班次待核实"只对当天有效，所以 start_date 必须由请求给出或按明天推算，
+    绝不从缓存或 needs 里的怪值沿用（第 8 节）。"""
+    for cand in (question_date, needs.get("date")):
+        if cand and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(cand)):
+            try:
+                datetime.strptime(str(cand), "%Y-%m-%d")
+                return str(cand)
+            except ValueError:
+                continue
+    return (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def run_plan(question: str, *, date: str | None = None, needs: dict | None = None,
+             thinking: str = "off", max_external: int = 0, max_extra: int = -1,
+             facts: list[str] | None = None, json_mode: bool = False,
+             skip_llm: bool = False, dry_run: bool = False, quiet: bool = False,
+             on_stage=None) -> dict:
+    """阶段 A→F 的编排。CLI 与 webapp 共用这一份，调用方不要再复制一遍流程。
+
+    needs 传入即跳过阶段 A（省 1 次 LLM，用于分段计时与调试）。
+    skip_llm=True 只跑到阶段 B，把注入 prompt 的上下文带回来，一次模型都不调。
+    dry_run=True 到"取数清单"为止：跑阶段 A（1 次 LLM 抽需求）与本地 wiki，
+    然后原样返回将要发出的高德/秘塔请求列表，**一条外部请求都不发**（web 的离线预演）。
+    json_mode=True 时阶段 C 换成 SYSTEM_PLAN_JSON，并多返回一个 plan（final_plan dict）。
+    on_stage(一行进度文本) 给 web 的轮询用，每个阶段结束时回调一次。
+    """
+    t_start = time.perf_counter()
+    trace: list[str] = []
+    llm_calls = 0
+    facts = list(facts or [])
+
+    def say(line: str) -> None:
+        if not quiet:
+            print(line, file=sys.stderr)
+
+    def mark(line: str) -> None:
+        trace.append(line)
+        say("   " + line)
+        if on_stage:
+            try:
+                on_stage(line)
+            except Exception as exc:   # 进度回调是附加信息，挂了不能把规划带崩
+                say(f"   [on_stage 异常 {type(exc).__name__}: {exc}]")
+
+    if needs is not None:
+        mark("A 需求抽取   由调用方提供，省掉 1 次 LLM")
+    else:
+        needs = extract_needs(question, date, thinking)
+        llm1 = needs.pop("_llm")
+        llm_calls += 1
+        mark(f"A 需求抽取   LLM {llm1['seconds']:.1f}s  in={llm1['in_tokens']} "
+             f"out={llm1['out_tokens']} reasoning={llm1['reasoning_chars']}字")
+    start_date = resolve_start_date(date, needs)
+    say(f"   需求：{json.dumps(needs, ensure_ascii=False)}")
+
+    wiki_text, pages = wiki_bundle(needs)
+    mark(f"B1 知识库     本地读 {len(pages)} 页，0 次外部调用")
+
+    if dry_run:
+        # 到清单为止：天气与路段要等 POI 坐标回来才能拼，这里按口径写清"之后还会发什么"。
+        calls = plan_wave1(needs, wiki_text, max_external)
+        poi_n = sum(1 for t, _ in calls if t == "get_amap_poi_search")
+        mark(f"B2 离线预演   将发 {len(calls)} 次外部调用（POI {poi_n} + 秘塔 {len(calls) - poi_n}），"
+             f"之后按坐标再发 1 次天气 + 路段若干；本次一条都没发")
+        return {"needs": needs, "start_date": start_date, "wiki_pages": pages,
+                "wiki_text": wiki_text, "ext": None, "context": "", "draft": "",
+                "final": "", "gap": None, "trace": trace, "llm_calls": llm_calls,
+                "external_calls": 0, "planned_calls": [{"tool": t, "args": a} for t, a in calls],
+                "seconds": time.perf_counter() - t_start}
+
+    ext = gather_external(needs, wiki_text, max_external, quiet=quiet, facts=facts)
+    mark(f"B2 外部取数   {ext['external_count']} 次（并行两波）+ 路段 {len(ext['legs'])} 条")
+    context = build_context(needs, wiki_text, ext, facts)
+
+    if skip_llm:
+        return {"needs": needs, "start_date": start_date, "wiki_pages": pages,
+                "wiki_text": wiki_text, "ext": ext, "context": context, "draft": "",
+                "final": "", "gap": None, "trace": trace, "llm_calls": llm_calls,
+                "external_calls": ext["external_count"],
+                "seconds": time.perf_counter() - t_start}
+
+    system = SYSTEM_PLAN_JSON if json_mode else SYSTEM_PLAN
+    llm2 = llm([{"role": "system", "content": system},
+                {"role": "user", "content": context + f"\n\n【题目】{question}"}],
+               max_tokens=2400, thinking=thinking)
+    llm_calls += 1
+    mark(f"C 初稿        LLM {llm2['seconds']:.1f}s  in={llm2['in_tokens']} "
+         f"out={llm2['out_tokens']} reasoning={llm2['reasoning_chars']}字")
+    draft, final = llm2["text"], llm2["text"]
+    gap_info: dict | None = None
+
+    if max_extra != 0:
+        # 补查轮也要在软上限内：剩多少额度就最多补多少条，额度见底就不补。
+        gap_limit = max_extra
+        if max_external and max_external > 0:
+            left = max_external - ext["external_count"]
+            if left <= 0:
+                mark("D 补查清单     外部调用已达软上限 "
+                     f"{max_external} 次，跳过补查轮（省 1 次 LLM）")
+                gap_limit = 0
+            else:
+                gap_limit = left if max_extra < 0 else min(max_extra, left)
+        if gap_limit:
+            gap_info = gap_round(context, question, ext["pois"], needs["destination_city"],
+                                 ext.get("adcode"), gap_limit, thinking, quiet=quiet)
+            g = gap_info["llm"]
+            llm_calls += 1
+            mark(f"D 补查清单     LLM {g['seconds']:.1f}s 发 {len(gap_info['calls'])} 次调用"
+                 f"（清单 {len(gap_info['asks'])} 条，上限 {gap_limit}） "
+                 f"reasoning={g['reasoning_chars']}字")
+            if gap_info["calls"]:
+                collect_pois(gap_info["results"], ext["pois"], needs["destination_city"])
+                ext["results"] = ext["results"] + gap_info["results"]
+                ext["external_count"] += len(gap_info["results"])
+                context = build_context(needs, wiki_text, ext, facts)
+                llm3 = llm([{"role": "system", "content": system},
+                            {"role": "user", "content": context + f"\n\n【题目】{question}"
+                             + f"\n\n【初稿，按补查到的数据改写它，别重写结构】\n{draft}"}],
+                           max_tokens=2400, thinking=thinking)
+                llm_calls += 1
+                mark(f"E 终稿        LLM {llm3['seconds']:.1f}s  in={llm3['in_tokens']} "
+                     f"out={llm3['out_tokens']} reasoning={llm3['reasoning_chars']}字")
+                final = llm3["text"]
+            else:
+                mark("E 终稿        补查清单为空或无可执行项，直接采用初稿")
+
+    total = time.perf_counter() - t_start
+    out = {"needs": needs, "start_date": start_date, "wiki_pages": pages, "wiki_text": wiki_text,
+           "ext": ext, "context": context, "draft": draft, "final": final,
+           "gap": gap_info, "trace": trace, "llm_calls": llm_calls,
+           "external_calls": ext["external_count"], "seconds": total}
+    if json_mode:
+        out["plan"] = build_plan_json(needs, question, final, ext, pages, start_date,
+                                      llm_calls, total, thinking, quiet)
+    return out
+
+
+def save_plan(plan: dict, out_dir: str = ".cache/plans") -> Path:
+    """每次成功的 final_plan 落一份 JSON，历史页读的就是这个目录。"""
+    target = REPO_ROOT / out_dir
+    target.mkdir(parents=True, exist_ok=True)
+    path = target / f"{plan['plan_id']}.json"
+    path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def render_markdown(res: dict) -> str:
+    """CLI 的 .cache/plan_run.md：与 JSON 模式共用同一份 run_plan 结果。"""
+    gap_info = res["gap"]
+    gap_block = []
+    if gap_info:
+        gap_block = ["", "## 补查轮要的数据",
+                     "```json", json.dumps(gap_info["asks"], ensure_ascii=False, indent=2), "```"]
+        if gap_info["notes"]:
+            gap_block += ["", "丢弃说明：", *[f"- {n}" for n in gap_info["notes"]]]
+    ext = res["ext"]
+    return "\n".join([
+        f"# 管线规划结果（{res['seconds']:.0f} s）",
+        "",
+        "## 耗时与用量",
+        *[f"- {t}" for t in res["trace"]],
+        f"- 合计 LLM 调用 {res['llm_calls']} 次，外部 API {ext['external_count']} 次，"
+        f"总 {res['seconds']:.1f} s",
+        "",
+        "## 抽取到的需求",
+        "```json",
+        json.dumps(res["needs"], ensure_ascii=False, indent=2),
+        "```",
+        "",
+        "## 方案",
+        res["final"],
+    ] + gap_block + ([
+        "",
+        "## 初稿（补查前）",
+        res["draft"],
+    ] if res["final"] != res["draft"] else []) + [
+        "",
+        "## 注入模型的上下文",
+        "```",
+        res["context"],
+        "```",
+        "",
+        "## 知识库命中页",
+        *[f"- {p}" for p in res["wiki_pages"]],
+    ]) + "\n"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="顺序管线规划客户端（含补查轮）")
     ap.add_argument("question")
@@ -717,141 +1316,73 @@ def main() -> int:
     ap.add_argument("--max-extra", type=int, default=-1,
                     help="补查轮：-1（默认）不限条数，0 关补查轮（回到 2 次 LLM），N>0 最多 N 条")
     ap.add_argument("--offline", action="store_true", help="不联网、不调模型，只打印计划")
+    ap.add_argument("--json", action="store_true",
+                    help="阶段 C 走 JSON 模式，方案落 .cache/plans/<plan_id>.json（前端契约）")
     ap.add_argument("--fact", action="append", default=[],
                     help="补充事实（可重复），用于秘塔不可用时把现查到的城际票价喂给阶段 C")
     ap.add_argument("--out", default=".cache/plan_run.md")
     args = ap.parse_args()
 
-    t_start = time.perf_counter()
-    trace: list[str] = []
-    llm_calls = 0
-
     if args.offline:
         needs = {"origin": "出发地", "destination_city": "绍兴", "intercity": True,
-                 "budget_yuan": 300, "must_visit": [], "themes": ["美食"],
+                 "days": 1, "budget_yuan": 300, "must_visit": [], "themes": ["美食"],
                  "need_intercity_ticket": True}
         wiki_text, pages = wiki_bundle(needs)
-        print(f"[offline] 知识库命中 {len(pages)} 页（上限 {WIKI_MAX_PAGES}）：{pages}\n"
-              f"[offline] 取数不设三波顺序与配额（①③已删）：全部 POI 检索 + 1 次秘塔（跨城且 wiki 没写高铁票价时）"
-              f"同波并发 → 1 次天气 + 全部主干路段（秘塔摘要参与选枢纽）"
-              f"{'；--max-external=' + str(args.max_external) + ' 截断 POI' if args.max_external else '（--max-external 0=不限）'}\n"
-              f"[offline] 补查清单原样执行（⑦白名单已删）："
-              f"{'已关闭' if args.max_extra == 0 else ('不限条数' if args.max_extra < 0 else f'最多 {args.max_extra} 条')}\n"
-              f"[offline] 方案上限 {PLAN_CHAR_LIMIT} 字（⑥保留）；防编造三条已删（④）；"
-              f"模型调用 {'4 次' if args.max_extra != 0 else '2 次'}（抽取 + 初稿 [+ 缺口 + 终稿]）；"
-              f"注入上下文字符 {len(wiki_text)}")
+        print(
+            f"[offline] 知识库命中 {len(pages)} 页（上限 {WIKI_MAX_PAGES}）：{pages}\n"
+            f"[offline] 取数不设三波顺序与配额（①③已删）：全部 POI 检索 + 1 次秘塔"
+            f"（跨城且 wiki 没写高铁票价时）同波并发 → 1 次天气 + 全部主干路段"
+            f"（秘塔摘要参与选枢纽）"
+            + (f"；--max-external={args.max_external} 截断 POI" if args.max_external
+               else "（--max-external 0=不限）") + "\n"
+            f"[offline] POI 检索统一带 show_fields={POI_SHOW_FIELDS}"
+            f"（前端卡片要照片与开放时间）\n"
+            f"[offline] 补查清单原样执行（⑦白名单已删）："
+            + ("已关闭" if args.max_extra == 0
+               else "不限条数" if args.max_extra < 0 else f"最多 {args.max_extra} 条") + "\n"
+            f"[offline] 方案上限 {PLAN_CHAR_LIMIT} 字（⑥保留）；防编造三条已删（④）；"
+            f"模型调用 {'4 次' if args.max_extra != 0 else '2 次'}"
+            f"（抽取 + 初稿 [+ 缺口 + 终稿]）"
+            + ("，JSON 模式再加 0~1 次分块补轮" if args.json else "") + "；"
+            f"注入上下文字符 {len(wiki_text)}")
         return 0
 
-    if args.needs:
-        needs = json.loads(args.needs)
-        trace.append("A 需求抽取   用 --needs 提供，省掉 1 次 LLM")
-    else:
-        needs = extract_needs(args.question, args.date, args.thinking)
-        llm1 = needs.pop("_llm")
-        llm_calls += 1
-        trace.append(f"A 需求抽取   LLM {llm1['seconds']:.1f}s  in={llm1['in_tokens']} "
-                     f"out={llm1['out_tokens']} reasoning={llm1['reasoning_chars']}字")
-        print("   " + trace[-1], file=sys.stderr)
-    print(f"   需求：{json.dumps(needs, ensure_ascii=False)}", file=sys.stderr)
-
-    wiki_text, pages = wiki_bundle(needs)
-    trace.append(f"B1 知识库     本地读 {len(pages)} 页，0 次外部调用")
-    ext = gather_external(needs, wiki_text, args.max_external, quiet=False, facts=args.fact)
-    trace.append(f"B2 外部取数   {ext['external_count']} 次（并行两波）+ 路段 {len(ext['legs'])} 条")
-
-    context = build_context(needs, wiki_text, ext, args.fact)
-
-    if args.skip_llm:
-        out_path = REPO_ROOT / args.out
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text("\n".join([f"# 注入模型的上下文（{time.perf_counter() - t_start:.1f} s）", "",
-                                       *[f"- {t}" for t in trace], "", "```", context, "```"]) + "\n",
-                            encoding="utf-8")
-        print(f"skip_llm total={time.perf_counter() - t_start:.1f}s external={ext['external_count']} "
-              f"context_chars={len(context)} -> {args.out}")
-        return 0
-
-    llm2 = llm(
-        [{"role": "system", "content": SYSTEM_PLAN},
-         {"role": "user", "content": context + f"\n\n【题目】{args.question}"}],
-        max_tokens=2400,
+    res = run_plan(
+        args.question,
+        date=args.date,
+        needs=json.loads(args.needs) if args.needs else None,
         thinking=args.thinking,
+        max_external=args.max_external,
+        max_extra=args.max_extra,
+        facts=args.fact,
+        json_mode=args.json,
+        skip_llm=args.skip_llm,
     )
-    llm_calls += 1
-    trace.append(f"C 初稿        LLM {llm2['seconds']:.1f}s  in={llm2['in_tokens']} "
-                 f"out={llm2['out_tokens']} reasoning={llm2['reasoning_chars']}字")
-    print("   " + trace[-1], file=sys.stderr)
-    draft, final = llm2["text"], llm2["text"]
-    gap_info: dict | None = None
-
-    if args.max_extra != 0:
-        gap_info = gap_round(context, args.question, ext["pois"], needs["destination_city"],
-                             ext.get("adcode"), args.max_extra, args.thinking, quiet=False)
-        g = gap_info["llm"]
-        llm_calls += 1
-        trace.append(f"D 补查清单     LLM {g['seconds']:.1f}s 发 {len(gap_info['calls'])} 次调用"
-                     f"（清单 {len(gap_info['asks'])} 条）"
-                     f" reasoning={g['reasoning_chars']}字")
-        print("   " + trace[-1], file=sys.stderr)
-        if gap_info["calls"]:
-            collect_pois(gap_info["results"], ext["pois"], needs["destination_city"])
-            ext["results"] = ext["results"] + gap_info["results"]
-            ext["external_count"] += len(gap_info["results"])
-            context = build_context(needs, wiki_text, ext, args.fact)
-            llm3 = llm(
-                [{"role": "system", "content": SYSTEM_PLAN},
-                 {"role": "user", "content": context + f"\n\n【题目】{args.question}"
-                                  f"\n\n【初稿，按补查到的数据改写它，别重写结构】\n{draft}"}],
-                max_tokens=2400,
-                thinking=args.thinking,
-            )
-            llm_calls += 1
-            trace.append(f"E 终稿        LLM {llm3['seconds']:.1f}s  in={llm3['in_tokens']} "
-                         f"out={llm3['out_tokens']} reasoning={llm3['reasoning_chars']}字")
-            print("   " + trace[-1], file=sys.stderr)
-            final = llm3["text"]
-        else:
-            trace.append("E 终稿        补查清单为空或无可执行项，直接采用初稿")
-
-    total = time.perf_counter() - t_start
 
     out_path = REPO_ROOT / args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    gap_block = []
-    if gap_info:
-        gap_block = ["", "## 补查轮要的数据",
-                     "```json", json.dumps(gap_info["asks"], ensure_ascii=False, indent=2), "```"]
-        if gap_info["notes"]:
-            gap_block += ["", "丢弃说明：", *[f"- {n}" for n in gap_info["notes"]]]
-    out_path.write_text("\n".join([
-        f"# 管线规划结果（{total:.0f} s）",
-        "",
-        "## 耗时与用量",
-        *[f"- {t}" for t in trace],
-        f"- 合计 LLM 调用 {llm_calls} 次，外部 API {ext['external_count']} 次，总 {total:.1f} s",
-        "",
-        "## 抽取到的需求",
-        "```json",
-        json.dumps(needs, ensure_ascii=False, indent=2),
-        "```",
-        "",
-        "## 方案",
-        final,
-    ] + gap_block + ([
-        "",
-        "## 初稿（补查前）",
-        draft,
-    ] if final != draft else []) + [
-        "",
-        "## 注入模型的上下文",
-        "```",
-        context,
-        "```",
-        "",
-        "## 知识库命中页",
-        *[f"- {p}" for p in pages],
-    ]) + "\n", encoding="utf-8")
-    print(f"total_seconds={total:.1f} llm_calls={llm_calls} external_calls={ext['external_count']} -> {args.out}")
+
+    if args.skip_llm:
+        out_path.write_text("\n".join([f"# 注入模型的上下文（{res['seconds']:.1f} s）", "",
+                                       *[f"- {t}" for t in res["trace"]], "", "```",
+                                       res["context"], "```"]) + "\n", encoding="utf-8")
+        print(f"skip_llm total={res['seconds']:.1f}s external={res['external_calls']} "
+              f"context_chars={len(res['context'])} -> {args.out}")
+        return 0
+
+    out_path.write_text(render_markdown(res), encoding="utf-8")
+    line = (f"total_seconds={res['seconds']:.1f} llm_calls={res['llm_calls']} "
+            f"external_calls={res['external_calls']} -> {args.out}")
+    if args.json:
+        plan = res["plan"]
+        saved = save_plan(plan)
+        items = [it for d in plan.get("days", []) for it in d["timeline"]]
+        line += (f" | plan_id={plan['plan_id']} degraded={plan['degraded']} "
+                 f"days={plan.get('days_count')} 条目={len(items)} "
+                 f"photo/location/path={sum(1 for i in items if i.get('photo'))}/"
+                 f"{sum(1 for i in items if i.get('location'))}/"
+                 f"{sum(1 for i in items if i.get('path'))} -> {saved}")
+    print(line)
     return 0
 
 

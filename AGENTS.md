@@ -65,26 +65,54 @@ Query 默认**不写库**：不建页、不改页、不动 `index.md`/`log.md`�
 
 外部 agent 客户端（Cline 等）跑一次规划实测 140–156 秒，其中 88% 是模型往返：它每轮都要"想一下
 下一步调哪个工具"，thinking 输出量是可见正文的 8 倍。对**第一次规划**（无缓存可复用）这类题目的
-取数顺序其实是确定的，所以本仓库自带一条固定顺序的管线客户端，把模型轮次压到 2 次：
+取数顺序其实是确定的，所以本仓库自带一条固定顺序的管线客户端。
 
 ```
 .venv/Scripts/python.exe scripts/plan_agent.py "题目原文" [--date 2026-10-08]
-    # 阶段 A 需求抽取 → 1 次 LLM；阶段 B 取数 0 次 LLM；阶段 C 出方案 → 1 次 LLM
-    # --offline 看调用清单；--skip-llm 只跑到阶段 B；--needs '<JSON>' 跳过抽取；--max-external 9
+    # A 需求抽取 → B1 本地读 wiki → B2 取数（POI+秘塔同波，天气+路段排其后）
+    # → C 初稿 → D 补查清单 → E 终稿 →（--json 时）F 转 final_plan
+    # 默认 4 次 LLM（抽取/初稿/补查/终稿）；多日题分块失败会再加 1 次按天整理
+    # --offline 看调用清单；--skip-llm 只跑到 B；--needs '<JSON>' 跳过抽取；--json 出结构化方案
 ```
 
 要点（改动前请先读这段）：
 
 - **关思考**：请求体带 `thinking={"type":"disabled"}` 与 `reasoning_effort="minimal"`。Cline 走
   openai-compatible 时不会替你发这个字段，所以只能在自家客户端里控制。
-- **外部调用上限默认 9**，按固定配额分配：≤4 次 POI（`城市景点` / `城市站` / 必去点 / 出发地）
-  → 1 次天气 → ≤3 次主干路段 → ≤1 次秘塔（仅当跨城且 wiki 里没有高铁数据）。
-  路段由 `pick_legs()` 按 adcode 与直线距离确定性挑（出发地→枢纽→最近景点→回枢纽），
-  **不算两两矩阵**。实测这一段并行两波跑完 2.4 秒、注入上下文 8.5 K 字符。
-- 票价与开放时间优先取高德 POI 的 `biz_ext.price/cost` 与 `opentime`，不要为这些再问秘塔。
-- 阶段 C 的 system prompt 强制紧凑格式（每段一行、禁止复述工具返回、末尾一行预算合计、总长≤400字），
+- **弱化版不再内置配额**（③已删）：`--max-external 0` 表示不限，路段也不限条数。
+  **但外部调用要按剩余额度分配**：`webapp` 入口传 `max_external=24`，`gather_external` 把剩余额度
+  当 `pick_legs` 的预算、`run_plan` 再按剩余额度限补查轮——早先只截 POI 时，一题绍兴跑出过 30 次。
+- **并发只能是 2**：`run_calls()` 用 `min(2, len(calls))`。高德个人 key 的并发上限是 3，
+  实测 6 并发一波挂 5 条、3 并发挂 2 条（`CUQPS_HAS_EXCEEDED_THE_LIMIT`，是限流不是没数据），
+  2 并发才 0 挂；`run_one` 另对 CUQPS 重发一次兜底。
+- **票价拿不到**：v5 的 POI 只有 `business.opentime_week` 与 `business.rating` 可靠，
+  `biz_ext.price/cost` 对景点是空的，`business.cost` 是**人均消费**（沈园实测给 163 元，真门票 40 元）——
+  餐饮/住宿可以用作参考价，景点票价必须现查网页。开放时间/评分要带 `show_fields=business,photos`。
+- 阶段 C 的 system prompt 强制紧凑格式（每段一行、禁止复述工具返回、总长 ≤1000 字），
   最后一轮输出是主要耗时来源，别把它改成自由长文。
+- **结构化输出走 `--json`**：让模型直接给 `{"days":[{"day","theme","items":[…]}]}`，
+  照片/坐标/评分由 `ledger_lookup()` 按条目名回查高德台账（**精确优先，模糊只在唯一候选时认**，
+  否则"沈园"会命中 4 家沈园堂酒店），折线由 `leg_index()` 从 direction 的 polyline 拼出来。
+  解析失败回退 `degraded:true` + Markdown 原文。
 - 需要模型凭据：仓库根 `.env` 的 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`（见 `.env.example`）。
+
+## 网页版（webapp/）
+
+`webapp/server.py` 是薄后端（FastAPI，只跑在 `127.0.0.1:8300`，**无鉴权，不要挂公网**），
+只做三件事：跑管线出 JSON、下发地图 JS key、托管 `webapp/static/`。
+规划逻辑一律 `import plan_agent` 复用 `run_plan()`，**不要在 webapp 里另写一份流程**。
+
+```
+E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --port 8300
+```
+
+- 端点：`POST /api/plan`（**阻塞**返回 final_plan，`offline:true` 返回调用清单且 0 次外部调用）、
+  `GET /api/job/running`（等待期间看阶段）、`GET /api/plan/<job_id>/status`、
+  `GET /api/config`（`AMAP_JS_KEY`/`AMAP_JS_SECURITY_CODE`，缺失返回空串让前端隐藏地图块）、
+  `GET /api/plans`（读 `.cache/plans/` 最近 20 条）、`GET /api/plans/<plan_id>`。
+- 每次跑成功的方案落 `.cache/plans/<plan_id>.json`（gitignore 内）。
+- **web 走的是 Query 路径，默认不写库**：不动 `wiki/`、`raw/`、`index.md`、`log.md`。
+- 契约与逐条实测校准记在 `docs/frontend-plan.md`（第 3/4/5/7 节），改前端前先读它。
 
 ## 批量导入（外部知识库冷启动）
 
@@ -124,7 +152,12 @@ Query 默认**不写库**：不建页、不改页、不动 `index.md`/`log.md`�
   启动时会自行加载，因此 `.mcp.json` 里不需要再写 Key）。
 - `get_amap_direction` 默认已带 `show_fields=cost,polyline,navi,tmc`：v5 只有请求 cost
   才返回 `paths[].time` 与 `transits[].cost.duration`，**不要再为拿耗时重发一遍**。
-  若 `METASO_API_KEY` 缺失导致 `ok=false`，可退回使用 agent 内置的 WebSearch/WebFetch，
+  polyline 的实际位置随 mode 变（`paths[].steps[].polyline`、transit 的
+  `segments[].walking.steps[]` 与 `segments[].bus.buslines[]`），要按出现顺序递归收集，别认死路径。
+- `get_amap_poi_search` 可选 `show_fields`（默认 None 保持旧行为）。要评分/开放时间/照片就传
+  `business,photos`——**键名是复数 `photos`，传 `photo` 不报错但静默不给**；
+  拿到的 `photos[].url` 是 `http://`，本机实测 http 超时、同 URL 换 https 才 200，落地时记得升级。
+- 若 `METASO_API_KEY` 缺失导致 `ok=false`，可退回使用 agent 内置的 WebSearch/WebFetch，
   但必须在 `raw/web/` 快照头部注明实际使用的工具。
 - 两个 server 的工具返回都是**单份紧凑 JSON**（无缩进，且不带 `structuredContent` 重复体）。
   直接返回 dict 会让 FastMCP 同时吐两份，实测一次规划 24 次工具返回 827 KB → 310 KB；
