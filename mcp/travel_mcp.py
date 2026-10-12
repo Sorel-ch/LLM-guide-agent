@@ -207,6 +207,24 @@ def travel_tool(fn):
     return mcp.tool()(wrapper)
 
 
+def describe_upstream_error(exc: BaseException) -> str:
+    """anyio TaskGroup 会把真实异常包成 ExceptionGroup，只剩一句
+    'unhandled errors in a TaskGroup (1 sub-exception)'，把上游到底怎么拒的都吃掉。
+    这里递归展开叶子异常，秘塔给 '未找到相关数据' 还是 '配额不足' 完全不是一个处置。"""
+    seen, depth = [], 0
+    cur: BaseException | None = exc
+    while cur is not None and depth < 8:
+        subs = getattr(cur, "exceptions", None)
+        if subs:
+            cur = subs[0]
+            depth += 1
+            continue
+        seen.append(f"{type(cur).__name__}: {cur}")
+        cur = cur.__cause__ if cur.__cause__ is not cur else None
+        depth += 1
+    return " <- ".join(seen) or f"{type(exc).__name__}: {exc}"
+
+
 async def call_metaso_tool(tool_name: str, arguments: dict[str, Any], query: dict[str, Any]) -> dict[str, Any]:
     if not METASO_API_KEY:
         return metaso_fail(
@@ -231,9 +249,13 @@ async def call_metaso_tool(tool_name: str, arguments: dict[str, Any], query: dic
                 query=query,
             )
     except Exception as exc:
+            detail = describe_upstream_error(exc)
+            # 秘塔把"这条查询没结果"也当成 JSON-RPC error 抛出来，被 TaskGroup 包成本来那句
+            # 无信息量的话；分开编码，调用方才知道是该换关键词重试还是真挂了。
+            code = "UPSTREAM_NO_RESULT" if "未找到相关数据" in detail else "UPSTREAM_RUNTIME_ERROR"
             return metaso_fail(
-                "UPSTREAM_RUNTIME_ERROR",
-                f"调用秘塔 MCP 工具失败: {exc}",
+                code,
+                f"调用秘塔 MCP 工具失败: {detail}",
                 query=query,
             )
 
@@ -566,6 +588,7 @@ def get_amap_poi_search(
     radius: int | None = None,    # 单位：米
     offset: int = 20,             # 每页结果数量，默认20，最大50
     page: int = 1,                # 页码
+    show_fields: str | None = None,  # v5 附加字段，如 "business"（营业时间/评分/电话）
     api_key: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -583,6 +606,8 @@ def get_amap_poi_search(
         radius: 搜索半径，单位米，范围0-50000。周边搜索时有效，默认3000米。
         offset: 每页返回结果数量，1-50，默认20。
         page: 页码，从1开始。
+        show_fields: v5 附加字段，逗号分隔，例如 "business" 返回营业时间、评分、电话。
+            不传时高德只给基础字段，POI 里将没有 opentime/biz_ext，票价与开放时间一律拿不到。
         api_key: 可选，未传时使用环境变量 AMAP_API_KEY。
         
     Returns:
@@ -622,6 +647,8 @@ def get_amap_poi_search(
             params["types"] = types
         if city:
             params["city"] = city
+        if show_fields:
+            params["show_fields"] = show_fields
             
         mode = "around"
         
@@ -643,6 +670,8 @@ def get_amap_poi_search(
             params["types"] = types
         if city:
             params["city"] = city
+        if show_fields:
+            params["show_fields"] = show_fields
             
         mode = "text"
     
@@ -673,7 +702,8 @@ def get_amap_poi_search(
             "location": location,
             "radius": radius,
             "offset": offset,
-            "page": page
+            "page": page,
+            "show_fields": show_fields,
         }
     )
 
