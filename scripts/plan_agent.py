@@ -1353,7 +1353,8 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
         if not clr["ready"]:
             return {"stage": "clarify", "question": question, "turns": list(turns or []),
                     "missing": clr["missing"], "questions": clr["questions"],
-                    "filled": clr["filled"], "llm_calls": llm_calls,
+                    "filled": clr["filled"], "needs": {**NEEDS_DEFAULTS, **clr["needs"]},
+                    "llm_calls": llm_calls,
                     "seconds": time.perf_counter() - t_start, "trace": trace}
         needs = {**NEEDS_DEFAULTS, **clr["needs"]}
     else:

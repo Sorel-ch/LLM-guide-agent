@@ -115,6 +115,15 @@ def run_job(job: dict) -> None:
         return
 
     job["seconds"] = round(time.perf_counter() - job["started"], 1)
+    # 没带 needs 又没问齐时 run_plan 会提前返回澄清结果（旧版前端/直接打接口都会撞上），
+    # 这里必须认这个分支，否则下面 res["plan"] 直接 KeyError 变成裸 500。
+    if res.get("stage") == "clarify":
+        job["state"] = "clarify"
+        job["result"] = {"missing": res["missing"], "questions": res["questions"],
+                         "filled": res["filled"], "needs": res["needs"],
+                         "turns": res["turns"]}
+        return
+
     if job["offline"]:
         job["result"] = {"offline": True, "needs": res["needs"],
                          "start_date": res["start_date"],
@@ -163,6 +172,9 @@ async def api_plan(req: PlanRequest) -> dict:
                                  f"进度请用 /api/plan/{key}/status（线程仍在跑，别重复提交）")
     if job["state"] == "error":
         raise HTTPException(500, job["error"] or "管线失败，原因没记下来")
+    if job["state"] == "clarify":
+        # 没问齐就提交了（旧版前端缓存、或直接打接口）：把问题清单回给它接着问，别报 500。
+        return {"job_id": key, "clarify": job["result"]}
     return {"job_id": key, **(job["result"] or {})}
 
 

@@ -131,7 +131,7 @@ function greet() {
 }
 
 async function startPlan() {
-  if (!CHAT.ready || !CHAT.turns.length || CHAT.busy) return;
+  if (!CHAT.ready || !CHAT.needs || !CHAT.turns.length || CHAT.busy) return;
   const offline = $("#offline").checked;
   const btn = $("#submit");
   $("#error").hidden = true;
@@ -159,8 +159,15 @@ async function startPlan() {
         needs: CHAT.needs, turns: CHAT.turns.slice(1),
       }),
     });
-    if (res.offline) renderManifest(res);
-    else { renderPlan(res); show("plan"); }
+    if (res.offline) { renderManifest(res); return; }
+    if (res.clarify) {
+      // 服务端说还没问齐（多半是标签页里缓存的旧脚本提交的）：退回未确认状态，接着问。
+      CHAT.ready = false; CHAT.needs = res.clarify.needs || null;
+      CHAT.missing = res.clarify.missing || []; CHAT.questions = res.clarify.questions || [];
+      bindChips(addBubble("agent", replyHtml(res.clarify)));
+      return;
+    }
+    renderPlan(res); show("plan");
   } catch (err) {
     fail(err.message);
   } finally {
