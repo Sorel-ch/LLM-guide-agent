@@ -106,7 +106,7 @@ SYSTEM_PLAN = (
     "2. 严禁复述工具返回内容、严禁解释你的推理、严禁逐条标注来源；\n"
     "2b. 【POI】给的人均是消费水平，不是门票价：景点花费没在数据里明确出现过就写待核实；\n"
     "2c. 类=餐饮服务/住宿服务 的条目可以按【POI】人均写花费并注明\"人均参考\"；"
-    "多日题每天末尾要有住宿条目，name 照抄【POI】里的酒店名；"
+    "多日题在每个要过夜的晚上末尾要有住宿条目（最后一天返程就不排），name 照抄【POI】里的酒店名；"
     "同一个景点或餐厅不要在多天里重复出现（住宿除外）；\n"
     f"3. 总长不超过 {PLAN_CHAR_LIMIT} 字：每段一行可以短，但题目要求的内容类别（景点、餐饮、住宿、往返）"
     "都要各自出现。\n"
@@ -125,6 +125,8 @@ SYSTEM_GAP = (
     "  get_amap_weather: city(adcode), extensions\n"
     "  metaso_web_search: q, size, scope（问题放 q，不要写 query）\n"
     "优先补金额最大的那几笔缺口（城际车票、门票、当日住宿）。"
+    "如果下面给了【代码已经排进队列的缺口】，那些我们已经在查了，不要重复列，"
+    "你只补自己判断出来的其它缺口。"
     "没有值得补的就输出 {\"asks\":[]}。只输出 JSON。"
 )
 
@@ -141,7 +143,8 @@ SYSTEM_PLAN_JSON = (
     "1. 题目是 N 天就给 N 个 day，day 从 1 连续编号；一日游就一个 day；每天给一个 theme；\n"
     "2. 景点/餐饮/住宿的 name 必须照抄【POI】或【知识库】里出现的名称，不要改写或加简称——"
     "坐标与照片由程序按这个名字回查；\n"
-    "2b. 多日题每天末尾放一条 type=hotel 的住宿（连续几天写同一家可以）；"
+    "2b. 多日题在**每个要过夜的晚上**末尾放一条 type=hotel 的住宿（连续几天写同一家可以），"
+    "最后一天要返程就不排住宿；"
     "住宿与餐饮的 name 要取【POI】里 类=住宿服务/餐饮服务 的那条（坐标与人均按这个名字回查），"
     "不要写知识库里顺带提到的连锁名；除此之外同一个 name 不要在多天里重复出现；\n"
     "3. 交通段 name 写 '甲→乙'，transport 写方式与耗时；没有任何实测数据时 transport 写\"交通待核实\"；\n"
@@ -319,12 +322,15 @@ def wiki_bundle(needs: dict, total_chars: int = WIKI_MAX_CHARS) -> tuple[str, li
     ranked: list[tuple[int, int, str]] = []  # (优先级, 首次出现序号, path)
     order = 0
     for kw in kws:
-        hits = unwrap(wiki_mcp.search_pages(kw, limit=6))["data"]["results"]
-        for h in hits[:4]:
+        hits = unwrap(wiki_mcp.search_pages(kw, limit=10))["data"]["results"]
+        for h in hits[:8]:
             if not h["exists"]:
                 continue
             stem = h["path"].rsplit("/", 1)[-1].removesuffix(".md")
-            prio = 0 if stem == kw or stem.startswith(kw) else 1
+            # 标题正好等于关键词的页（`cities/宁波.md`）要压过"前缀撞上"的页
+            # （`pois/宁波博物馆.md`）：宁波那题实测每词只取前 4 条命中时，
+            # 城市页被同名前缀的 POI 页挤了出去，see 表里的景点一个都没进检索。
+            prio = 0 if stem == kw else (1 if stem.startswith(kw) else 2)
             if any(p[2] == h["path"] for p in ranked):
                 continue
             ranked.append((prio, order, h["path"]))
@@ -332,7 +338,11 @@ def wiki_bundle(needs: dict, total_chars: int = WIKI_MAX_CHARS) -> tuple[str, li
     pages = [p for _, _, p in sorted(ranked, key=lambda x: (x[0], x[1]))][:WIKI_MAX_PAGES]
     if not pages:
         return "（知识库无相关页面）", []
-    per_extra = 2200
+    # 首屏页（一般是目的地城市页）要给够：它的 see 表里带着票价列，截断了等于白命中。
+    # 原来的 `total - 2200*(n-1)` 在 8 页时算出负数，被 max(600, …) 兜成 600 字，
+    # 宁波那题的城市页就是这么被截没的。
+    first_budget = 4000
+    per_extra = min(2200, max(600, (total_chars - first_budget) // max(1, len(pages) - 1)))
     texts: list[str] = []
     used = 0
     batch = unwrap(wiki_mcp.read_pages(pages))["data"]["pages"]
@@ -341,7 +351,8 @@ def wiki_bundle(needs: dict, total_chars: int = WIKI_MAX_CHARS) -> tuple[str, li
         warns = "；".join(meta.get("warnings") or [])
         budget = (total_chars - used - per_extra * (len(batch) - i - 1)
                   if i == 0 else per_extra)
-        body = (p.get("content") or "")[: max(600, budget)]
+        budget = max(first_budget if i == 0 else 600, budget)
+        body = (p.get("content") or "")[:budget]
         used += len(body)
         texts.append(
             f"### {meta.get('path')}（{meta.get('type')}，valid_until={meta.get('valid_until')}）\n"
@@ -351,19 +362,40 @@ def wiki_bundle(needs: dict, total_chars: int = WIKI_MAX_CHARS) -> tuple[str, li
 
 
 def wiki_sights(wiki_text: str, needs: dict, limit: int = 3) -> list[str]:
-    """从 wiki 城市页的条目表里取要去的地点名，交给高德换成坐标。
+    """从 wiki 知识块里取要去的地点名，交给高德换成坐标。
 
     这是"先 wiki 再高德"真正该长的样子：`{city}景点` 这种泛检索在高德那边返回的是一堆
     公园绿地（成都实测：9 个结果里 7 个是公园），模型照它排的行程全是免费公园，
     武侯祠、杜甫草堂这些 wiki 里明明有的景点反倒没有坐标、写成一串"交通待核实"。
+
+    **只认目的地城市的页**：知识块里还会混进出发地城市与邻市页（`宁波` 那题实测捞进了
+    杭州页与嘉兴页），照单全收就会拿"乌镇/西栅/南湖"去宁波检索，三发 POI 白打，
+    而块里明明有 `wiki/pois/宁波博物馆.md`、`南塘老街.md` 两页却没被用，
+    结果第二天的条目全没坐标、地图上只剩第一天。
     """
-    names: list[str] = []
-    for m in re.finditer(r"^\|\s*(?:see|do|eat)\s*\|\s*([^|]{2,26}?)\s*\|", wiki_text, re.M):
-        # 单元格里常见"秋瑾故居，含秋瑾烈士纪念碑"这种带说明的名字（绍兴页实测），
-        # 整串拿去搜高德会搜不到；逗号/顿号/括号之前的部分才是地点本体。
-        n = re.split(r"[，,、；;（(]", m.group(1).strip())[0].strip()
-        if len(n) >= 2 and n not in ("缺", "-") and n not in names:
-            names.append(n)
+    city = needs.get("destination_city") or ""
+    # 知识块是按页拼的（`### <路径>（<类型>，valid_until=…）`），先切回一页一段再判归属。
+    sections = re.split(r"(?m)^### ", wiki_text)
+    poi_names: list[str] = []
+    see_names: list[str] = []
+
+    def add(bucket: list[str], n: str) -> None:
+        n = re.split(r"[，,、；;（(]", n.strip())[0].strip()
+        if len(n) >= 2 and n not in ("缺", "-") and n not in bucket:
+            bucket.append(n)
+
+    for sec in sections[1:]:
+        header, _, body = sec.partition("\n")
+        path = header.split("（")[0].strip()
+        if path.endswith(f"cities/{city}.md"):
+            for m in re.finditer(r"^\|\s*(?:see|do|eat)\s*\|\s*([^|]{2,26}?)\s*\|", body, re.M):
+                # 单元格里常见"秋瑾故居，含秋瑾烈士纪念碑"这种带说明的名字（绍兴页实测），
+                # 整串拿去搜高德会搜不到；逗号/顿号/括号之前的部分才是地点本体。
+                add(see_names, m.group(1))
+        elif "/pois/" in path and city and city in body:
+            # POI 页的标题本身就是个地点名，而且它单独成页说明值得去，排在 see 表前面。
+            add(poi_names, path.rsplit("/", 1)[-1].removesuffix(".md"))
+    names = poi_names + see_names
     must = needs.get("must_visit") or []
     themes = needs.get("themes") or []
 
@@ -501,7 +533,9 @@ def plan_wave1(needs: dict, wiki_text: str, max_external: int) -> list[tuple[str
         # 出发地按其所在城市检索；origin 只是一个城市名时不查（"杭州"会捞回杭州大厦、
         # 杭州站(出口)这类无关条目，白吃一个 POI 名额）
         calls.append(poi_call(origin, origin_city or None, 3))
-    for name in wiki_sights(wiki_text, needs, limit=3):
+    # 多日题要给更多候选点：只取 3 个时第二天往往一个坐标都没有（宁波两日实测）。
+    sight_limit = min(7, 3 + 2 * max(0, int(_num(needs.get("days")) or 1) - 1))
+    for name in wiki_sights(wiki_text, needs, limit=sight_limit):
         if not any(name in c[1]["keywords"] or c[1]["keywords"] in name for c in calls):
             calls.append(poi_call(name, city, 3))
     # 住宿要排在主题词之前：台账渲染有 30 行上限，`{city}美食` 一次就吃掉 8 行，
@@ -634,17 +668,82 @@ def gap_calls(asks: list) -> tuple[list, list[str]]:
     return out, notes
 
 
-def gap_round(context: str, question: str, pois: dict, city: str, adcode: str | None,
-              limit: int, thinking: str, quiet: bool) -> dict:
-    """一轮补查：LLM 递清单 → 原样执行，按 POI/天气 → 路段 → 秘塔 分三小批，
-    让路段能用上同批里刚补查到的坐标（成都实测：一起发就解析不到坐标）。
-    limit<=0 表示不限条数，>0 只截清单长度。asks 为空时一次外部调用都不发。
+def draft_items(draft: str) -> list[dict]:
+    """把初稿拆成条目。JSON 模式直接解析；Markdown 模式按"HH:MM-HH:MM 名称 | 交通 | 花费"切行。
+    只用来算缺口，解析不出来就返回空，补查轮退回原来的纯模型判断。"""
+    got = extract_json(draft)
+    if isinstance(got, dict) or isinstance(got, list):
+        items = []
+        for g in normalize_groups(got):
+            for seg in g["items"]:
+                items.append({"type": str(seg.get("type") or "attraction"),
+                              "name": str(seg.get("name") or "")})
+        return items
+    items = []
+    for line in draft.splitlines():
+        m = re.match(r"^\s*\d{1,2}:\d{2}\s*[-–~]\s*\d{1,2}:\d{2}\s+(.+)$", line)
+        if not m:
+            continue
+        parts = [p.strip() for p in m.group(1).split("|")]
+        if not parts or not parts[0]:
+            continue
+        name = parts[0]
+        kind = "transit" if "→" in name else "attraction"
+        items.append({"type": kind, "name": name})
+    return items
+
+
+def forced_gap_asks(draft: str, pois: dict, city: str, year: str, cap: int = 6) -> list[dict]:
+    """代码算出"初稿里哪些条目没坐标、哪些没价格"，直接排进补查队列。
+
+    补查轮原先完全由模型自由发挥，它看不到"哪几条 cost 是 null"，
+    于是宁波那题的宁波罗城（票价）与望江宾馆（房价）双双留成待核实——**是没查，不是查不到**。
+    景点票价与住宿房价高德都不给（v5 无票价字段、住宿 business.cost 实测全空），只能走网页。
     """
+    asks: list[dict] = []
+    seen: set[str] = set()
+    for it in draft_items(draft):
+        name, kind = it["name"], it["type"]
+        if kind == "transit" or not name or name in seen:
+            continue
+        seen.add(name)
+        poi, _exact = ledger_lookup(name, pois)
+        if poi is None:
+            asks.append({"tool": "get_amap_poi_search", "why": f"初稿用到「{name}」但台账里没有，缺坐标",
+                         "args": {"keywords": name, "city": city, "offset": 3,
+                                  "show_fields": POI_SHOW_FIELDS}})
+            continue
+        has_price = poi.get("price") or poi.get("cost")
+        if kind == "attraction" and not has_price:
+            asks.append({"tool": "metaso_web_search", "why": f"「{name}」门票价高德不给，要现查网页",
+                         "args": {"q": f"{name} 门票 价格 {year}", "size": 5}})
+        elif kind == "hotel" and not has_price:
+            asks.append({"tool": "metaso_web_search", "why": f"「{name}」房价高德 business.cost 为空，要现查",
+                         "args": {"q": f"{city} {name} 一晚 房价 {year}", "size": 5}})
+        elif kind == "meal" and not has_price:
+            asks.append({"tool": "metaso_web_search", "why": f"「{name}」人均没给，补一次网页",
+                         "args": {"q": f"{name} 人均 消费 {city}", "size": 5}})
+        if len(asks) >= cap:
+            break
+    return asks
+
+
+def gap_round(context: str, question: str, pois: dict, city: str, adcode: str | None,
+              limit: int, thinking: str, quiet: bool, draft: str = "") -> dict:
+    """一轮补查：代码先算出必查缺口，LLM 再补它自己的判断，合并后原样执行，
+    按 POI/天气 → 路段 → 秘塔 分三小批，让路段能用上同批里刚补查到的坐标（成都实测：一起发就解析不到坐标）。
+    limit<=0 表示不限条数，>0 只截清单长度（代码算出的缺口优先占额度）。
+    asks 为空时一次外部调用都不发。
+    """
+    forced = forced_gap_asks(draft, pois, city, str(datetime.now().year)) if draft else []
+    gap_note = ("\n\n【代码已经排进队列的缺口，不要再重复列】\n"
+                + "\n".join(f"  - {a['why']}" for a in forced) if forced else "")
     res = llm(
         [{"role": "system", "content": SYSTEM_GAP},
          {"role": "user", "content": f"【题目】{question}\n\n{context}\n\n"
                                      f"【已有数据（地名 | 坐标）】direction 可引用这些地名：\n"
-                                     + "\n".join(f"  {n} | {p['coord']}" for n, p in list(pois.items())[:40])}],
+                                     + "\n".join(f"  {n} | {p['coord']}" for n, p in list(pois.items())[:40])
+                                     + gap_note}],
         max_tokens=700,
         thinking=thinking,
     )
@@ -656,8 +755,8 @@ def gap_round(context: str, question: str, pois: dict, city: str, adcode: str | 
     if not isinstance(asks, list):
         asks = []
     if limit and limit > 0:
-        asks = asks[:limit]
-    calls, notes = gap_calls(asks)
+        asks = asks[:max(0, limit - len(forced))]
+    calls, notes = gap_calls(forced + asks)
 
     results: list = []
     first = [c for c in calls if c[0] in ("get_amap_poi_search", "get_amap_weather")]
@@ -689,7 +788,8 @@ def gap_round(context: str, question: str, pois: dict, city: str, adcode: str | 
     third = [c for c in calls if c[0].startswith("metaso")]
     results += run_calls(third, quiet)
 
-    return {"llm": res, "asks": asks, "calls": calls, "notes": notes, "results": results}
+    return {"llm": res, "asks": asks, "forced": len(forced),
+            "calls": calls, "notes": notes, "results": results}
 
 
 def run_one(tool_name: str, args: dict, quiet: bool):
@@ -874,7 +974,8 @@ def build_context(needs: dict, wiki_text: str, ext: dict, facts: list[str] | Non
     lines.append(f"【知识库】\n{wiki_text[:WIKI_MAX_CHARS]}")
     if ext["pois"]:
         # business.cost 是人均消费，对餐饮/住宿有用，对景点是游客综合消费——别当门票用（沈园实测 163）。
-        lines.append("【POI（坐标/开放时间/评分，来自高德 v5；v5 不返回门票价格，人均≠票价）】")
+        lines.append("【POI（坐标/开放时间/评分，来自高德 v5；v5 不返回门票价格，人均≠票价；"
+                     "开放= 里的 00:00-24:00 是景区大门口径，不是馆内开放时间）】")
         # 按检索词给配额：全局 30 行先到先得时，`{city}站` 带回的一堆地铁站会把后面的
         # 酒店、餐厅整批挤出去（实测两种排法各挤掉一类，被挤掉的那一类模型只能凭空编名字）。
         shown: list[tuple[str, dict, str]] = []
@@ -997,6 +1098,9 @@ def leg_index(ext: dict) -> list[dict]:
         out.append({
             "a": coord_names.get(args.get("origin"), args.get("origin")),
             "b": coord_names.get(args.get("destination"), args.get("destination")),
+            # 端点坐标也留着：模型写"宁波站→天一阁博物院"，链上却叫"宁波火车站/天一阁"，
+            # 纯按名字对就整段丢折线（宁波实测 7 条腿只落 1 条）。
+            "a_coord": args.get("origin"), "b_coord": args.get("destination"),
             "mode": args.get("mode"),
             "minutes": max(1, int(float(duration or 0)) // 60) if duration else None,
             "fee": fee,
@@ -1040,6 +1144,22 @@ def polyline_of(node: dict) -> list[list[float]]:
     return pts
 
 
+ALL_DAY_RE = re.compile(r"00:00\s*[-–~]\s*24:00")
+
+
+def useful_hours(kind: str, value) -> str | None:
+    """高德的 `business.opentime_week` 对景区给的是**大门口径**：天一阁实测是
+    "周一至周日 00:00-24:00"，而 wiki 里记的馆内时间是 8:30 起（还带着"两说并存"的矛盾）。
+    这种全天值摆在卡片上比不摆更容易骗人，所以景点/住宿一律当"没给"；
+    街区、广场这类真全天开放的，模型会在 tip 里自己说清楚，不靠这个字段。"""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if kind in ("attraction", "hotel") and ALL_DAY_RE.search(text):
+        return None
+    return text
+
+
 def ledger_lookup(name: str, pois: dict) -> tuple[dict | None, bool]:
     """模型写的条目名回查高德台账，返回 (条目, 是否精确)。
 
@@ -1077,12 +1197,24 @@ def origin_point(needs: dict, pois: dict) -> dict | None:
     return {"name": name, "location": {"lng": float(p["lon"]), "lat": float(p["lat"])}}
 
 
-def match_leg(name: str, transport: str, legs: list[dict]) -> dict | None:
-    """交通段回查实测路段：按 name/transport 里出现的端点名计数，两端都命中才算数。"""
+def match_leg(name: str, transport: str, legs: list[dict], pois: dict | None = None) -> dict | None:
+    """交通段回查实测路段：先按**端点坐标**认（名字对不上是常态），再退回两端名字都命中。"""
+    parts = [p.strip() for p in str(name or "").split("→")]
+    if pois and len(parts) == 2:
+        a, b = resolve_ref(parts[0], pois), resolve_ref(parts[1], pois)
+        if a and b:
+            for leg in legs:
+                if leg.get("a_coord") == a and leg.get("b_coord") == b:
+                    return leg
     text = f"{name} {transport}"
+
+    def hit(leg_name: str) -> bool:
+        return bool(leg_name) and (leg_name in text or any(leg_name in p or p in leg_name
+                                                           for p in parts if len(p) >= 3))
+
     best, score = None, 0
     for leg in legs:
-        s = int(bool(leg["a"] and leg["a"] in text)) + int(bool(leg["b"] and leg["b"] in text))
+        s = int(hit(leg["a"])) + int(hit(leg["b"]))
         if s > score:
             best, score = leg, s
     return best if score >= 2 else None
@@ -1251,7 +1383,7 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
             if poi:
                 row["location"] = {"lng": float(poi["lon"]), "lat": float(poi["lat"])}
                 row["rating"] = _num(poi.get("rating"))
-                row["open_time"] = poi.get("opentime")
+                row["open_time"] = useful_hours(row["type"], poi.get("opentime"))
                 # 照片只在精确命中时给：卡片上贴错地方的图比空白更糟（前端按 null 降级）。
                 row["photo"] = poi.get("photo") if exact else None
                 # business.cost 对餐饮/住宿是人均消费（能用），对景点是游客综合消费（不能用）；
@@ -1262,7 +1394,7 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                     row["source"], row["verified"] = "amap_poi", True
                 elif src == "wiki":
                     row["source"], row["verified"] = "wiki+amap", True
-            leg = match_leg(row["name"], row["transport"] or "", legs) if row["type"] == "transit" else None
+            leg = match_leg(row["name"], row["transport"] or "", legs, ext["pois"]) if row["type"] == "transit" else None
             if leg:
                 row["path"] = leg["path"]
                 row["verified"] = True
@@ -1415,11 +1547,11 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
                 gap_limit = left if max_extra < 0 else min(max_extra, left)
         if gap_limit:
             gap_info = gap_round(context, question, ext["pois"], needs["destination_city"],
-                                 ext.get("adcode"), gap_limit, thinking, quiet=quiet)
+                                 ext.get("adcode"), gap_limit, thinking, quiet=quiet, draft=draft)
             g = gap_info["llm"]
             llm_calls += 1
             mark(f"D 补查清单     LLM {g['seconds']:.1f}s 发 {len(gap_info['calls'])} 次调用"
-                 f"（清单 {len(gap_info['asks'])} 条，上限 {gap_limit}） "
+                 f"（清单 {len(gap_info['asks'])} 条 + 代码必查 {gap_info['forced']} 条，上限 {gap_limit}） "
                  f"reasoning={g['reasoning_chars']}字")
             if gap_info["calls"]:
                 collect_pois(gap_info["results"], ext["pois"], needs["destination_city"])
