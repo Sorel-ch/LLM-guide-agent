@@ -14,7 +14,8 @@
   C 初稿        LLM #2，紧凑格式，≤1000 字
   D 补查        LLM #3 递缺口清单，清单原样执行（不分白名单）
   E 终稿        LLM #4，带着补查数据改写初稿
-  F 结构化      --json 时把终稿转成 final_plan；题目要 N 天而模型全塞一天就补一轮 LLM #5
+  F 结构化      --json 时先把终稿里"相邻却没测过"的腿补成 direction 请求（≤6 条，跨城腿不补），
+                再把终稿转成 final_plan；题目要 N 天而模型全塞一天就补一轮 LLM #5
 
 用法:
     .venv/Scripts/python.exe scripts/plan_agent.py "题目原文" [--date 2026-10-08]
@@ -1666,6 +1667,41 @@ def route_quality(rows: list[dict]) -> dict:
             "route_note": note, "stops": len(kept)}
 
 
+LEG_TOPUP_CAP = 6         # 终稿补腿的条数上限：direction 是个人 key 日配额 5000 的便宜接口
+
+
+def plan_leg_topup(text: str, pois: dict, legs: list[dict], adcode: str | None,
+                   city: str, cap: int = LEG_TOPUP_CAP) -> list[tuple[str, dict]]:
+    """终稿成形后，把"相邻却没测过"的腿补成 direction 请求。
+
+    `pick_legs` 的链是在方案成形之前按台账最近邻挑的，模型自己插进来的餐饮/住宿/次日首站
+    从来不在那条链里——宁波实测 11 条交通段有 5 条根本没发过请求，前端只能显示"路线待实测"。
+    跨城腿（杭州东↔宁波站）不在补测范围：台账里没有对侧端点的坐标，
+    而高德给的跨城公共交通方案数值真但不能用（见⑧那条历史：模型照它编过高铁车次）。
+    """
+    pts: list[dict] = []
+    for seg in (s for g in normalize_groups(extract_json(text)) for s in g["items"]):
+        if (seg.get("type") or "attraction") == "transit":
+            continue
+        poi, _exact = ledger_lookup(str(seg.get("name") or ""), pois)
+        if poi and poi.get("coord"):
+            pts.append(poi)
+    seen = {(l["a_coord"], l["b_coord"]) for l in legs}
+    out: list[tuple[str, dict]] = []
+    for a, b in zip(pts, pts[1:]):
+        pair = (a["coord"], b["coord"])
+        if pair[0] == pair[1] or pair in seen or len(out) >= cap:
+            continue
+        seen.add(pair)
+        # mode 与主波同一口径：2.5 km 内算步行，否则公交（city1/city2 只认 adcode）。
+        out.append(("get_amap_direction",
+                    {"origin": a["coord"], "destination": b["coord"],
+                     "mode": "walking" if km_between(a, b) <= 2.5 else "transit",
+                     "city1": a.get("adcode") or adcode or city,
+                     "city2": b.get("adcode") or adcode or city}))
+    return out
+
+
 def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: list,
                     date_used: str, llm_calls: int, seconds: float,
                     thinking: str, quiet: bool) -> dict:
@@ -1909,6 +1945,17 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
            "gap": gap_info, "trace": trace, "llm_calls": llm_calls,
            "external_calls": ext["external_count"], "seconds": total}
     if json_mode:
+        # F 补腿：终稿的相邻关系此时才确定，主波那条按台账铺的链盖不住模型自己插进去的
+        # 餐宿与次日首站。放在 build_plan_json 之前，折线才回查得到。
+        topup = plan_leg_topup(final, ext["pois"], leg_index(ext), ext.get("adcode"),
+                               needs["destination_city"])
+        if topup:
+            results = run_calls(topup, quiet)
+            ext["results"] = ext["results"] + results
+            ext["external_count"] += len(topup)
+            out["external_calls"] = ext["external_count"]
+        mark(f"F 补腿         发 {len(topup)} 条 direction"
+             f"（上限 {LEG_TOPUP_CAP}，跨城腿不补）")
         out["plan"] = build_plan_json(needs, question, final, ext, pages, start_date,
                                       llm_calls, total, thinking, quiet)
     return out
