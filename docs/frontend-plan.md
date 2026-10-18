@@ -159,6 +159,8 @@ v1 只做展示，不做编辑：没有多轮对话、没有登录、没有拖�
      点卡片展开 8/5 大图与"开放时间 / 参考费用 / 评分 / 来源+坐标"明细（Enter/Space 同样能开合）。
    - **`type:"transit"` 不渲染成卡片，渲染成卡片之间的胶囊行**（对齐 FloatTrip 的"前往下一站"）：
      左写 transport，右写"实测 N 点折线"或"路线待实测"，未核实再加一枚"班次/票价待核实"。
+     `timeline[].path_status`（`measured` / `missing` / `cross_city`）：城际段本来就测不到折线，
+     要写成"城际段不实测折线"，不能跟"这条没测到"共用一句"路线待实测"。
      transport 文本里已含票价时不再重复拼 `cost`（实测出现过"5元 · 5 元"）。
    - 视觉 token 取自 FloatTrip：底 `#F5F8FC`、卡片白、ink `#151A20/#475569/#637287`、线 `#CEDAE6`、
      主色 `#2864A8`、警示 `#8C641F` on `#FFF5E3`、圆角 16/12/8、`font-variant-numeric: tabular-nums`。

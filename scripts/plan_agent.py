@@ -898,11 +898,12 @@ def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
     stations = [n for n in pois
                 if (n.endswith("站") or "火车站" in n) and in_target(n)
                 and not station_junk.search(n)]
-    # 车站类条目不能当景点：`成都站(建设中)` 从 stations 里被剔掉后，会作为"景点"混进链条，
-    # 于是行程里出现"成都南站→成都站(建设中)"这种腿（实测）。地铁站同理。
+    # 车站/停车场类条目不能当景点：`成都站(建设中)` 从 stations 里被剔掉后，会作为"景点"
+    # 混进链条，于是行程里出现"成都南站→成都站(建设中)"这种腿（实测）；地铁站同理。
+    # 判据统一走 is_transit_stop（含 typecode 15 与停车场/售票处这类设施名），
+    # 别再在这里维护第二套名字规则。
     def is_station_like(n: str) -> bool:
-        return (n.endswith("站") or "火车站" in n or "地铁站" in n
-                or "汽车站" in n or "客运中心" in n or station_junk.search(n))
+        return is_transit_stop(n, pois[n])
 
     # 住宿不进景点链：typecode 100xxx 是高德的"住宿服务"，检索回来的酒店散在全城，
     # 让它们进链条既白吃路段配额，又会把地图视野拽到几十公里外。
@@ -1008,6 +1009,9 @@ POI_JUNK_RE = re.compile(
     r"[(（][^()（）]{0,8}(建设中|在建|进站|出站|检票|售票|停车|进出口|入口|出口|装修)"
     r"|站(北|南|东|西)?广场")
 LODGING_NAME_RE = re.compile(r"酒店|宾馆|旅馆|民宿|客栈|招待所|青年旅舍")
+# 不带括号也认的设施名：高德的"停车场/售票处/候车室"名字里往往没有括号，
+# POI_JUNK_RE 那套要括号的规则罩不住它们。
+POI_FACILITY_RE = re.compile(r"停车场|售票处|检票口|候车|出站|进出站|地下广场|旅游码头")
 
 
 def km_between(a: dict, b: dict) -> float:
@@ -1024,9 +1028,13 @@ def path_km(seq: list[str], pois: dict) -> float:
 
 
 def is_transit_stop(name: str, poi: dict) -> bool:
+    """车站、停车场、售票处这类"交通/设施"条目：既不能当游览点排进链，也不能当住宿挑。
+    `宁波站南广场地下停车场` 是实测踩到的：它 typecode 属交通设施、名字又不以"站"结尾，
+    于是混进路段链，成了枢纽的最近邻，白吃一条 300 m 的步行腿。"""
     tc = str(poi.get("typecode") or "")
     return (tc[:2] == "15" or name.endswith("站") or "火车站" in name or "地铁站" in name
-            or "汽车站" in name or "客运中心" in name or bool(POI_JUNK_RE.search(name)))
+            or "汽车站" in name or "客运中心" in name or bool(POI_JUNK_RE.search(name))
+            or bool(POI_FACILITY_RE.search(name)))
 
 
 def is_lodging_or_meal(name: str, poi: dict) -> bool:
@@ -1515,27 +1523,42 @@ def origin_point(needs: dict, pois: dict) -> dict | None:
     return {"name": name, "location": {"lng": float(p["lon"]), "lat": float(p["lat"])}}
 
 
-def match_leg(name: str, transport: str, legs: list[dict], pois: dict | None = None) -> dict | None:
-    """交通段回查实测路段：先按**端点坐标**认（名字对不上是常态），再退回两端名字都命中。"""
+def match_leg(name: str, legs: list[dict], pois: dict | None = None,
+              claimed: set | None = None) -> dict | None:
+    """交通段回查实测路段。
+
+    两端都能从台账解析出坐标时，**坐标就是终审**：对不上说明这条腿没实测过，不再按名字猜。
+    名字兜底只留给解析不出坐标的情况（模型写了简称），且要求两端**各自**在正确方向上命中。
+    宁波栽过两次：`宁波站 → 宁波站南广场地下停车场` 这条 300 m 步行腿同时命中了
+    "杭州东→宁波站""宁波站→南塘老街""宁波站→杭州东"三段（"宁波站"既是它的起点，
+    又是"宁波站南广场…"的子串），三条不同的腿共用一条折线——在地图上就是"线又没了"。
+    同一条折线也不能分给两段（`claimed`）。
+    """
     parts = [p.strip() for p in str(name or "").split("→")]
-    if pois and len(parts) == 2:
+    if len(parts) != 2:
+        return None
+    taken = claimed or set()
+
+    def free(leg: dict) -> bool:
+        return (leg.get("a_coord"), leg.get("b_coord")) not in taken
+
+    if pois:
         a, b = resolve_ref(parts[0], pois), resolve_ref(parts[1], pois)
         if a and b:
             for leg in legs:
-                if leg.get("a_coord") == a and leg.get("b_coord") == b:
+                if leg.get("a_coord") == a and leg.get("b_coord") == b and free(leg):
                     return leg
-    text = f"{name} {transport}"
+            return None        # 坐标都对得上号却没这条腿：就是没测过
 
-    def hit(leg_name: str) -> bool:
-        return bool(leg_name) and (leg_name in text or any(leg_name in p or p in leg_name
-                                                           for p in parts if len(p) >= 3))
+    def rel(p: str, leg_name: str) -> bool:
+        return bool(p) and bool(leg_name) and (leg_name == p or p in leg_name or leg_name in p)
 
-    best, score = None, 0
     for leg in legs:
-        s = int(hit(leg["a"])) + int(hit(leg["b"]))
-        if s > score:
-            best, score = leg, s
-    return best if score >= 2 else None
+        if not free(leg) or leg.get("a_coord") == leg.get("b_coord"):
+            continue
+        if rel(parts[0], leg["a"]) and rel(parts[1], leg["b"]):
+            return leg
+    return None
 
 
 def assign_days(segments: list[dict], needs: dict, thinking: str, quiet: bool) -> tuple[list, int]:
@@ -1683,38 +1706,43 @@ def route_quality(rows: list[dict]) -> dict:
             "route_note": note, "stops": len(kept)}
 
 
-LEG_TOPUP_CAP = 6         # 终稿补腿的条数上限：direction 是个人 key 日配额 5000 的便宜接口
+LEG_TOPUP_CAP = 10        # 终稿补腿的条数上限：direction 是个人 key 日配额 5000 的便宜接口
 
 
 def plan_leg_topup(text: str, pois: dict, legs: list[dict], adcode: str | None,
                    city: str, cap: int = LEG_TOPUP_CAP) -> list[tuple[str, dict]]:
-    """终稿成形后，把"相邻却没测过"的腿补成 direction 请求。
+    """终稿成形后，把交通段自己声明、却没测过的端点对补成 direction 请求。
 
-    `pick_legs` 的链是在方案成形之前按台账最近邻挑的，模型自己插进来的餐饮/住宿/次日首站
-    从来不在那条链里——宁波实测 11 条交通段有 5 条根本没发过请求，前端只能显示"路线待实测"。
-    跨城腿（杭州东↔宁波站）不在补测范围：台账里没有对侧端点的坐标，
-    而高德给的跨城公共交通方案数值真但不能用（见⑧那条历史：模型照它编过高铁车次）。
+    `pick_legs` 的链是在方案成形之前按台账最近邻挑的，模型自己插进来的餐饮/住宿与
+    "从到达枢纽出发的那一段"从来不在那条链里——宁波实测 11 条交通段有 5 条根本没发过请求，
+    前端只能显示"路线待实测"。
+    配对直接用交通段写的"甲→乙"，走 `match_leg` 同一套 `resolve_ref` 解析——
+    测的与回查的必须是一套口径。改成按"非交通条目的相邻对"补实测过一次，
+    结果模型声明 `宁波站→天一阁·月湖`、补腿却只测了中间夹着餐厅的两段，照样缺线。
+    跨城腿两端都在台账里时照旧会补（⑧的禁令已删），对侧没坐标就自然补不到。
     """
-    pts: list[dict] = []
-    for seg in (s for g in normalize_groups(extract_json(text)) for s in g["items"]):
-        if (seg.get("type") or "attraction") == "transit":
-            continue
-        poi, _exact = ledger_lookup(str(seg.get("name") or ""), pois)
-        if poi and poi.get("coord"):
-            pts.append(poi)
+    by_coord = {p["coord"]: p for p in pois.values() if p.get("coord")}
     seen = {(l["a_coord"], l["b_coord"]) for l in legs}
     out: list[tuple[str, dict]] = []
-    for a, b in zip(pts, pts[1:]):
-        pair = (a["coord"], b["coord"])
-        if pair[0] == pair[1] or pair in seen or len(out) >= cap:
+    for seg in (s for g in normalize_groups(extract_json(text)) for s in g["items"]):
+        if len(out) >= cap:
+            break
+        if (seg.get("type") or "attraction") != "transit":
             continue
-        seen.add(pair)
+        parts = [p.strip() for p in str(seg.get("name") or "").split("→")]
+        if len(parts) != 2:
+            continue
+        a, b = resolve_ref(parts[0], pois), resolve_ref(parts[1], pois)
+        pa_, pb_ = by_coord.get(a), by_coord.get(b)
+        if not a or not b or a == b or (a, b) in seen or not pa_ or not pb_:
+            continue
+        seen.add((a, b))
         # mode 与主波同一口径：2.5 km 内算步行，否则公交（city1/city2 只认 adcode）。
         out.append(("get_amap_direction",
-                    {"origin": a["coord"], "destination": b["coord"],
-                     "mode": "walking" if km_between(a, b) <= 2.5 else "transit",
-                     "city1": a.get("adcode") or adcode or city,
-                     "city2": b.get("adcode") or adcode or city}))
+                    {"origin": a, "destination": b,
+                     "mode": "walking" if km_between(pa_, pb_) <= 2.5 else "transit",
+                     "city1": pa_.get("adcode") or adcode or city,
+                     "city2": pb_.get("adcode") or adcode or city}))
     return out
 
 
@@ -1732,6 +1760,7 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                             "llm_calls": llm_calls, "seconds": round(seconds, 1),
                             "failures": call_failures(ext)}}
     legs = leg_index(ext)
+    claimed: set[tuple[str, str]] = set()   # 一条实测折线只能分给一段交通
     forecast, weather_note = weather_rows(ext)
     extra_llm = 0
     expected = int(needs.get("days") or 0)
@@ -1745,6 +1774,8 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
             print(f"    · 分块补轮失败，沿用原分组：{type(exc).__name__}: {exc}", file=sys.stderr)
 
     start = date_used
+    origin_token = ((needs.get("origin_city") or needs.get("origin") or "")
+                    if needs.get("intercity") else "")[:2]
     out_days = []
     for d in groups:
         items = []
@@ -1755,6 +1786,7 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                    "start_time": seg.get("start_time"), "end_time": seg.get("end_time"),
                    "transport": seg.get("transport"), "cost": cost,
                    "tip": seg.get("tip"), "photo": None, "path": None,
+                   "path_status": None,
                    "location": None, "rating": None, "open_time": None,
                    "verified": src in ("wiki", "amap"),
                    "source": src if src in ("wiki", "amap", "metaso") else "none"}
@@ -1778,13 +1810,20 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                     row["source"], row["verified"] = "amap_poi", True
                 elif src == "wiki":
                     row["source"], row["verified"] = "wiki+amap", True
-            leg = match_leg(row["name"], row["transport"] or "", legs, ext["pois"]) if row["type"] == "transit" else None
+            leg = match_leg(row["name"], legs, ext["pois"], claimed) if row["type"] == "transit" else None
             if leg:
+                claimed.add((leg["a_coord"], leg["b_coord"]))
                 row["path"] = leg["path"]
                 row["verified"] = True
                 row["source"] = "amap_direction"
                 if row["cost"] is None and leg["fee"] is not None:
                     row["cost"] = leg["fee"]
+            if row["type"] == "transit":
+                # 前端要分得开"这条没测到"和"城际段本来就不实测折线"，
+                # 否则用户看到的都是"路线待实测"，以为又是连线丢了。
+                row["path_status"] = ("measured" if leg else
+                                      "cross_city" if origin_token and origin_token in row["name"]
+                                      else "missing")
             normalize_people_tip(row)
             items.append(row)
         date = (datetime.strptime(start, "%Y-%m-%d") + timedelta(days=d["day"] - 1)).strftime("%Y-%m-%d")

@@ -305,7 +305,8 @@ function transferPill(it) {
     <div class="stop-node transit" aria-hidden="true">${ICON.transit}</div>
     <div class="transfer" data-mk="${it.__i}" title="点击在地图上画出这段实测路线">
       <span class="pill ${measured ? "measured" : ""}">${esc(text)}${cost}</span>
-      <span class="pill">${measured ? `实测 ${it.path.length} 点折线` : "路线待实测"}</span>
+      <span class="pill">${measured ? `实测 ${it.path.length} 点折线`
+        : (it.path_status === "cross_city" ? "城际段不实测折线" : "路线待实测")}</span>
       ${it.verified ? "" : '<span class="pill" style="color:var(--warn)">班次/票价待核实</span>'}
     </div>
   </div>`;
