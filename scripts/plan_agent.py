@@ -109,7 +109,8 @@ SYSTEM_GAP = (
     'metaso_web_search","args":{...},"why":"缺什么"}]}\n'
     "args 的键名必须照抄工具签名，写错就整条作废：\n"
     "  get_amap_poi_search: keywords, city, offset, show_fields\n"
-    "  get_amap_direction: origin, destination, mode(walking|transit|driving), city1, city2\n"
+    "  get_amap_direction: origin, destination, mode(walking|transit|driving), city1, city2"
+    "（city1/city2 只认 adcode 如 510100，写城市名会整条失败；不知道就别写，管线会补）\n"
     "  get_amap_weather: city(adcode), extensions\n"
     "  metaso_web_search: q, size, scope（问题放 q，不要写 query）\n"
     "优先补金额最大的那几笔缺口（城际车票、门票、当日住宿）。"
@@ -466,9 +467,11 @@ def gather_external(needs: dict, wiki_text: str, max_external: int, quiet: bool,
     legs = pick_legs(needs, pois, leg_budget, adcode, hints)
     for a_name, b_name, mode in legs:
         a, b = pois[a_name], pois[b_name]
+        # city1/city2 只认 adcode（传城市名 INVALID_PARAMS，实测），端点没有就退回本市 adcode。
         wave2.append(("get_amap_direction",
                       {"origin": a["coord"], "destination": b["coord"], "mode": mode,
-                       "city1": a.get("adcode") or city, "city2": b.get("adcode") or city}))
+                       "city1": a.get("adcode") or adcode or city,
+                       "city2": b.get("adcode") or adcode or city}))
 
     wave2_results = run_calls(wave2, quiet)
 
@@ -567,6 +570,7 @@ def gap_round(context: str, question: str, pois: dict, city: str, adcode: str | 
     collect_pois(results, pois, city)          # 新补查到的 POI 进台账，供下面的路段解析
 
     second = []
+    by_coord = {p["coord"]: p for p in pois.values()}
     for tool, args in calls:
         if tool != "get_amap_direction":
             continue
@@ -578,6 +582,12 @@ def gap_round(context: str, question: str, pois: dict, city: str, adcode: str | 
             notes.append(f"路段端点“{miss}”补查后仍解析不到坐标，丢弃这条路段")
             continue
         a["origin"], a["destination"] = o, d
+        # transit 的 city1/city2 要的是**城市编码**（传"成都"会被高德判 INVALID_PARAMS，实测），
+        # 端点坐标能回查到台账就用自己的 adcode，否则用本次已经探到的城市 adcode。
+        if str(a.get("mode") or "") == "transit":
+            for k, ref in (("city1", o), ("city2", d)):
+                if not a.get(k):
+                    a[k] = (by_coord.get(ref) or {}).get("adcode") or adcode or city
         second.append((tool, a))
     results += run_calls(second, quiet)
 
@@ -1067,7 +1077,9 @@ def call_failures(ext: dict) -> list[dict]:
     """第 5 节的失败语义：哪条外部调用没成、为什么，原样带进 final_plan 给前端标出来，
     不静默吞。补查轮的结果也在 ext["results"] 里，所以这里天然是全量。"""
     return [{"tool": tool,
-             "args": json.dumps(args, ensure_ascii=False)[:90],
+             # 紧凑分隔符 + 200 字上限：按 90 字硬切会把 args 的 JSON 字符串截成半截（实测），
+             # 前端拿到的是坏 JSON，读不出参数。
+             "args": json.dumps(args, ensure_ascii=False, separators=(",", ":"))[:200],
              "error_code": payload.get("error_code"),
              "error_msg": str(payload.get("error_msg") or "")[:140]}
             for tool, args, payload in ext["results"] if not payload.get("ok")]

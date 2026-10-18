@@ -159,6 +159,8 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --
   启动时会自行加载，因此 `.mcp.json` 里不需要再写 Key）。
 - `get_amap_direction` 默认已带 `show_fields=cost,polyline,navi,tmc`：v5 只有请求 cost
   才返回 `paths[].time` 与 `transits[].cost.duration`，**不要再为拿耗时重发一遍**。
+  **transit 的 `city1`/`city2` 只认 adcode**：传"成都"直接 `INVALID_PARAMS`（0 条方案），
+  传 `510100` 才给 5 条——同一对坐标实测。
   polyline 的实际位置随 mode 变（`paths[].steps[].polyline`、transit 的
   `segments[].walking.steps[]` 与 `segments[].bus.buslines[]`），要按出现顺序递归收集，别认死路径。
 - `get_amap_poi_search` 可选 `show_fields`（默认 None 保持旧行为）。要评分/开放时间/照片就传

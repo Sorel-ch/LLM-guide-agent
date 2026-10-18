@@ -286,7 +286,8 @@ function renderPlan(p) {
 
 /* ------------------------------------------------------------------ 地图块（M4） */
 
-const MAP = { AMap: null, map: null, info: null, overlays: [], markerByIdx: {}, lineByIdx: {}, tried: false, ok: false };
+const MAP = { AMap: null, map: null, info: null, overlays: [], fitTargets: [], markerByIdx: {}, lineByIdx: {}, tried: false, ok: false };
+const FIT_MAX_KM = 20;   // 离质心超过这个距离的站点不参与初始视野
 let PLAN = null;   // 卡片与 marker 靠条目下标对上
 
 function injectScript(src) {
@@ -366,11 +367,36 @@ function focusItem(idx) {
   }
 }
 
+function overlayPoint(o) {
+  const p = o.getPosition ? o.getPosition() : (o.getPath ? o.getPath()[0] : null);
+  if (!p) return null;
+  // AMap 的 LngLat 只保证 getLng/getLat，直接取 .lng 会拿到 undefined（算出 NaN 就整批走兜底）。
+  const lng = Number(typeof p.getLng === "function" ? p.getLng() : p.lng);
+  const lat = Number(typeof p.getLat === "function" ? p.getLat() : p.lat);
+  return Number.isFinite(lng) && Number.isFinite(lat) ? [lng, lat] : null;
+}
+
+// 初始视野排除离群点：一份三日方案里 40 km 外的机场会把 zoom 拉到 9.85，
+// 实测市中心与熊猫基地各自 4~5 个点叠在 11 px 内，只剩最上面那个看得见。
+function pickFitTargets(overlays) {
+  const pts = overlays.map(overlayPoint).filter(Boolean);
+  if (pts.length < 3) return { kept: overlays.slice(), dropped: 0 };
+  const med = (i) => pts.map((p) => p[i]).slice().sort((a, b) => a - b)[Math.floor(pts.length / 2)];
+  const [mlng, mlat] = [med(0), med(1)];
+  const kept = overlays.filter((o) => {
+    const p = overlayPoint(o);
+    if (!p) return true;
+    const dx = (p[0] - mlng) * 111 * Math.cos((mlat * Math.PI) / 180);
+    return Math.hypot(dx, (p[1] - mlat) * 111) <= FIT_MAX_KM;
+  });
+  return kept.length ? { kept, dropped: overlays.length - kept.length } : { kept: overlays.slice(), dropped: 0 };
+}
+
 function drawMap(p) {
   if (!MAP.ok) return;
   const AMap = MAP.AMap;
   MAP.map.remove(MAP.overlays);
-  MAP.overlays = []; MAP.markerByIdx = {}; MAP.lineByIdx = {};
+  MAP.overlays = []; MAP.fitTargets = []; MAP.markerByIdx = {}; MAP.lineByIdx = {};
   let n = 0;
   (p.days || []).forEach((d) => d.timeline.forEach((it) => {
     const idx = it.__i;
@@ -406,8 +432,11 @@ function drawMap(p) {
       MAP.lineByIdx[idx] = line;
     }
   }));
-  if (MAP.overlays.length) MAP.map.setFitView(MAP.overlays, false, [46, 46, 46, 46]);
-  mapNote(`${n} 个 marker ｜ ${Object.keys(MAP.lineByIdx).length} 条实测折线`);
+  const fit = pickFitTargets(MAP.overlays);
+  MAP.fitTargets = fit.kept;
+  if (MAP.fitTargets.length) MAP.map.setFitView(MAP.fitTargets, false, [46, 46, 46, 46]);
+  mapNote(`${n} 个 marker ｜ ${Object.keys(MAP.lineByIdx).length} 条实测折线`
+    + (fit.dropped ? `｜ 视野按 ${FIT_MAX_KM} km 内的站点算，${fit.dropped} 个远点没框进来` : ""));
 }
 
 $("#map-toggle").addEventListener("click", () => {
@@ -421,7 +450,7 @@ $("#map-toggle").addEventListener("click", () => {
   if (!collapsed && MAP.map) {
     setTimeout(() => {
       MAP.map.resize();
-      if (MAP.overlays.length) MAP.map.setFitView(MAP.overlays, false, [46, 46, 46, 46]);
+      if (MAP.fitTargets.length) MAP.map.setFitView(MAP.fitTargets, false, [46, 46, 46, 46]);
     }, 30);
   }
 });
