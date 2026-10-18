@@ -91,7 +91,7 @@ main { max-width: 900px; margin: 0 auto; padding: 18px 16px 30px; }
 
 /* ------------------------------------------------------------ 输入页 */
 .kicker { display: block; font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-3); }
-textarea, input[type="date"] {
+textarea, input[type="date"], input[type="text"] {
   width: 100%;
   margin-top: 5px;
   padding: 10px 12px;
@@ -327,6 +327,33 @@ button.ghost { background: #fff; border: 1px solid var(--line); color: var(--ink
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .dot.v { background: var(--accent); }
 .dot.u { background: var(--warn); }
+
+/* 对话页：多轮澄清，问齐了才让点"开始规划" */
+.chat { display: flex; flex-direction: column; gap: 12px; }
+.chat-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.chat-head h2 { margin: 0; }
+.chat-head .meta { flex: 1 1 auto; }
+.chat-log {
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: 46vh; overflow-y: auto; padding: 2px;
+  border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft);
+}
+.bub { max-width: 88%; padding: 9px 12px; font-size: 14px; line-height: 1.6; }
+.bub p { margin: 0 0 6px; }
+.bub p:last-child { margin-bottom: 0; }
+.bub.me { align-self: flex-end; background: var(--accent); color: #fff; border-radius: 12px 4px 12px 12px; }
+.bub.agent { align-self: flex-start; background: var(--card-2); color: var(--ink); border-radius: 4px 12px 12px 12px; }
+.bub .q { margin-top: 6px; }
+.bub .q b { color: var(--accent); margin-right: 4px; }
+.chat .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.chip {
+  border: 1px solid var(--line); background: #fff; color: var(--accent);
+  border-radius: 999px; padding: 4px 11px; font-size: 13px; cursor: pointer;
+}
+.chip:hover { background: var(--accent-soft); border-color: var(--accent); }
+.chat-row { display: flex; gap: 8px; align-items: stretch; }
+.chat-row input[type="text"] { flex: 1; margin-top: 0; }
+.chat-row button { flex: none; width: auto; margin: 0; padding: 0 18px; }
 
 @media (max-width: 560px) {
   main { padding: 12px 10px 40px; }

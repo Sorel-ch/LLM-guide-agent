@@ -25,8 +25,10 @@ from pydantic import BaseModel, Field
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO_ROOT / "scripts"
 PLANS_DIR = REPO_ROOT / ".cache" / "plans"
+CHATS_DIR = REPO_ROOT / ".cache" / "chats"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
+import secrets
 import sys
 
 sys.path.insert(0, str(SCRIPTS))
@@ -37,12 +39,15 @@ import plan_agent as pa  # noqa: E402  （导入时已加载仓库根 .env）
 MAX_EXTERNAL_WEB = 24
 LIST_LIMIT = 20
 PLAN_ID_RE = re.compile(r"^[\w.\-一-鿿]{1,120}$")
+SID_RE = re.compile(r"^[0-9a-f]{8,32}$")   # 会话 id 只收十六进制，路径拼接前先看这个
 
 app = FastAPI(title="LLM-guide-agent webapp", docs_url=None, redoc_url=None)
 
 # 一次只让一个规划在跑：单次规划内部自己有并发，两个任务同时跑就会把高德个人 key
 # 的并发额度（实测上限 3，见 plan_agent.run_calls 的注释）吃满。本地自用不需要并行。
 EXECUTOR = cf.ThreadPoolExecutor(max_workers=1)
+# 追问只花 1~2 秒（一次 LLM，不碰高德），不能排在 20 秒的规划任务后面，所以另开一个小池。
+CHAT_EXECUTOR = cf.ThreadPoolExecutor(max_workers=2)
 JOB_TIMEOUT = 240        # 秒；一次规划实测 8~20 秒，留足补查轮与网络抖动的余量
 JOBS: dict[str, dict] = {}
 JOB_LOCK = asyncio.Lock()
@@ -52,11 +57,25 @@ class PlanRequest(BaseModel):
     question: str = Field(min_length=4, max_length=600)
     date: str | None = None
     offline: bool = False
+    # 澄清会话问齐了再提交时带上来：needs 让它跳过抽取（省 1 次 LLM），
+    # turns 保留用户补过的原话，规划阶段能看到。
+    needs: dict | None = None
+    turns: list[str] = Field(default_factory=list)
 
 
-def job_key(question: str, date: str | None, offline: bool) -> str:
-    """同一 question+date 的 in-flight 任务去重：第二个请求直接挂到同一个 job（第 5 节）。"""
-    raw = f"{question.strip()}|{date or ''}|{int(offline)}"
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=600)
+    sid: str | None = None          # 不给就开一轮新会话，返回里带 sid
+    date: str | None = None
+
+
+def job_key(question: str, date: str | None, offline: bool,
+            needs: dict | None = None, turns: list[str] | None = None) -> str:
+    """同一 question+date 的 in-flight 任务去重：第二个请求直接挂到同一个 job（第 5 节）。
+    澄清过的会话要把 needs/turns 也算进哈希，否则会撞上早先那次没澄清的任务。"""
+    raw = (f"{question.strip()}|{date or ''}|{int(offline)}"
+           f"|{json.dumps(needs or {}, sort_keys=True, ensure_ascii=False)}"
+           f"|{'/'.join(turns or [])}")
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
 
 
@@ -78,6 +97,8 @@ def run_job(job: dict) -> None:
         res = pa.run_plan(
             job["question"],
             date=job["date"],
+            needs=job.get("needs"),
+            turns=job.get("turns"),
             json_mode=True,
             max_external=MAX_EXTERNAL_WEB,
             quiet=True,
@@ -116,7 +137,7 @@ async def api_plan(req: PlanRequest) -> dict:
     规划要跑 10~30 秒，job_id 由 question+date 哈希得出，前端可以在等响应期间
     并发轮询 /api/plan/<job_id>/status 看阶段进度。
     """
-    key = job_key(req.question, req.date, req.offline)
+    key = job_key(req.question, req.date, req.offline, req.needs, req.turns)
     async with JOB_LOCK:
         job = JOBS.get(key)
         # 只有还在跑的任务才复用；跑完过的重新跑一遍——天气与"班次待核实"只对当天有效（第 8 节）。
@@ -124,6 +145,7 @@ async def api_plan(req: PlanRequest) -> dict:
             job = None
         if not job:
             job = {"id": key, "question": req.question.strip(), "date": req.date,
+                   "needs": req.needs, "turns": req.turns,
                    "offline": req.offline, "state": "queued", "stages": [],
                    "created": datetime.now().isoformat(timespec="seconds"),
                    "created_ts": time.perf_counter(), "started": None, "future": None,
@@ -184,6 +206,69 @@ async def api_job_result(job_id: str) -> dict:
     if job["state"] != "done":
         raise HTTPException(409, f"任务还在 {job['state']}，先轮询 /api/plan/{job_id}/status")
     return job["result"]
+
+
+def chat_path(sid: str) -> Path:
+    if not SID_RE.match(sid or ""):
+        raise HTTPException(400, "sid 不合法")
+    path = (CHATS_DIR / f"{sid}.json").resolve()
+    if CHATS_DIR.resolve() not in path.parents:   # 同 plan_path：挡 ..\ 穿越
+        raise HTTPException(400, "sid 不合法")
+    return path
+
+
+@app.post("/api/chat")
+async def api_chat(req: ChatRequest) -> dict:
+    """多轮澄清（plan_agent.clarify 的 HTTP 面）。消息追加进会话，返回缺哪几项与追问。
+
+    `ready=true` 之前前端不该出现"开始规划"；提交时把这里的 needs 原样带回 /api/plan，
+    规划阶段就不再重复抽一次需求。
+    """
+    msg = req.message.strip()
+    if not msg:
+        raise HTTPException(400, "消息是空的")
+    if req.sid:
+        path = chat_path(req.sid)
+        if not path.exists():
+            raise HTTPException(404, f"会话 {req.sid} 不存在（.cache/chats 被清过就重开一轮）")
+        chat = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        chat = {"sid": secrets.token_hex(8), "turns": [],
+                "created": datetime.now().isoformat(timespec="seconds")}
+    if not chat["turns"] or chat["turns"][-1] != msg:   # 连点重复提交同一句，不重复计入
+        chat["turns"].append(msg)
+    if req.date:
+        chat["date"] = req.date
+    chat.setdefault("date", None)
+    try:
+        clr = await asyncio.get_running_loop().run_in_executor(
+            CHAT_EXECUTOR, pa.clarify, list(chat["turns"]), chat["date"], "off")
+    except SystemExit as exc:      # 缺 LLM key 时 plan_agent 用 SystemExit 说话
+        raise HTTPException(500, f"配置缺失：{exc}")
+    except Exception as exc:
+        raise HTTPException(500, f"{type(exc).__name__}: {exc}"[:300])
+
+    chat["last"] = {"ready": clr["ready"], "missing": clr["missing"],
+                    "questions": clr["questions"], "filled": clr["filled"],
+                    "needs": {**pa.NEEDS_DEFAULTS, **clr["needs"]}}
+    chat["updated"] = datetime.now().isoformat(timespec="seconds")
+    CHATS_DIR.mkdir(parents=True, exist_ok=True)
+    chat_path(chat["sid"]).write_text(json.dumps(chat, ensure_ascii=False, indent=2) + "\n",
+                                      encoding="utf-8")
+    return {"sid": chat["sid"], "turns": chat["turns"], "date": chat["date"],
+            "seconds": round(clr["seconds"], 1), **chat["last"]}
+
+
+@app.get("/api/chat/{sid}")
+async def api_chat_get(sid: str) -> dict:
+    """刷新页面后接着上一轮问。"""
+    path = chat_path(sid)
+    if not path.exists():
+        raise HTTPException(404, f"会话 {sid} 不存在")
+    chat = json.loads(path.read_text(encoding="utf-8"))
+    return {"sid": chat["sid"], "turns": chat["turns"], "date": chat.get("date"),
+            **(chat.get("last") or {"ready": False, "missing": [], "questions": [],
+                                     "filled": {}, "needs": {}})}
 
 
 @app.get("/api/config")

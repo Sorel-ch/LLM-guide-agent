@@ -69,14 +69,22 @@ Query 默认**不写库**：不建页、不改页、不动 `index.md`/`log.md`�
 
 ```
 .venv/Scripts/python.exe scripts/plan_agent.py "题目原文" [--date 2026-10-08]
-    # A 需求抽取 → B1 本地读 wiki → B2 取数（POI+秘塔同波，天气+路段排其后）
+    # A 澄清+抽取 → B1 本地读 wiki → B2 取数（POI+秘塔同波，天气+路段排其后）
     # → C 初稿 → D 补查清单 → E 终稿 →（--json 时）F 转 final_plan
-    # 默认 4 次 LLM（抽取/初稿/补查/终稿）；多日题分块失败会再加 1 次按天整理
+    # 默认 4 次 LLM（澄清+抽取/初稿/补查/终稿）；多日题分块失败会再加 1 次按天整理
     # --offline 看调用清单；--skip-llm 只跑到 B；--needs '<JSON>' 跳过抽取；--json 出结构化方案
+    # 信息不全时不规划：终端里交互式追问；脚本里 --no-prompt 打印问题清单并以退出码 3 结束，
+    # 带 --answer '你的回答'（可重复）续答；--no-clarify 关掉闸门回到旧的一次出方案
 ```
 
 要点（改动前请先读这段）：
 
+- **A 阶段是"澄清 + 抽取"的一次调用**（`clarify()`）：五项（目的地/起点/时间/预算/偏好）只要还有
+  `unknown` 就不进 B，直接返回 `{"stage":"clarify", "missing":[…], "questions":[…]}`。
+  状态定义：明确说过 = `stated`，用户表态"不限/都行/你看着安排" = `waived`，没说 = `unknown`；
+  **目的地不许 waived**（没有地名规划无从谈起）。`missing` 由代码算，不信模型自称"齐了"：
+  模型漏问的槽用 `CLARIFY_SLOTS`/`CLARIFY_ASK` 兜底，追问已明确的槽丢掉，一次最多 3 问、按固定优先级排。
+  题目本来就写全时它取代原来的抽取，**不多花一次 LLM 也不多花时间**。
 - **关思考**：请求体带 `thinking={"type":"disabled"}` 与 `reasoning_effort="minimal"`。Cline 走
   openai-compatible 时不会替你发这个字段，所以只能在自家客户端里控制。
 - **弱化版不再内置配额**（③已删）：`--max-external 0` 表示不限，路段也不限条数。
@@ -113,10 +121,15 @@ Query 默认**不写库**：不建页、不改页、不动 `index.md`/`log.md`�
 E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --port 8300
 ```
 
-- 端点：`POST /api/plan`（**阻塞**返回 final_plan，`offline:true` 返回调用清单且 0 次外部调用）、
+- 端点：`POST /api/chat`（多轮澄清：`{sid?, message, date?}` → `{sid, ready, missing, questions, needs}`，
+  会话落 `.cache/chats/<sid>.json`，`GET /api/chat/<sid>` 刷新后接着问）、
+  `POST /api/plan`（**阻塞**返回 final_plan，`offline:true` 返回调用清单且 0 次外部调用；
+  澄清齐了要带 `needs`+`turns` 回来，否则阶段 A 会又抽一遍）、
   `GET /api/job/running`（等待期间看阶段）、`GET /api/plan/<job_id>/status`、
   `GET /api/config`（`AMAP_JS_KEY`/`AMAP_JS_SECURITY_CODE`，缺失返回空串让前端隐藏地图块）、
   `GET /api/plans`（读 `.cache/plans/` 最近 20 条）、`GET /api/plans/<plan_id>`。
+- 前端首页是**对话气泡流**，不是表单：`ready=false` 期间"开始规划"按钮一直禁用，
+  追问的可点短答案来自模型给的 `questions[].options`。
 - 每次跑成功的方案落 `.cache/plans/<plan_id>.json`（gitignore 内）。
 - **web 走的是 Query 路径，默认不写库**：不动 `wiki/`、`raw/`、`index.md`、`log.md`。
 - 契约与逐条实测校准记在 `docs/frontend-plan.md`（第 3/4/5/7 节），改前端前先读它。

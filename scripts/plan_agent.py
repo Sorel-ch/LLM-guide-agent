@@ -72,6 +72,12 @@ EXTRACTION_SCHEMA = """{"origin":"","origin_city":"","destination_city":"","inte
 "day_trip":true,"days":3,"budget_yuan":300,"themes":["美食"],"must_visit":["校区参观"],
 "need_intercity_ticket":true,"date":"YYYY-MM-DD"}"""
 
+# 下游是按键名直接取值的（plan_wave1 要 needs["destination_city"]），
+# 模型整块漏给某个字段时靠这份默认值兜住。
+NEEDS_DEFAULTS = {"origin": "", "origin_city": "", "destination_city": "", "intercity": False,
+                  "day_trip": True, "days": 1, "budget_yuan": 0, "themes": [], "must_visit": [],
+                  "need_intercity_ticket": False, "date": ""}
+
 # 保留 ⑥：输出篇幅仍是硬上限；其余配额（路段条数 / 外部调用数）已删。
 PLAN_CHAR_LIMIT = 1000      # 阶段 C 的字数上限
 WIKI_MAX_PAGES = 8          # 注入上下文的 wiki 页数
@@ -217,6 +223,84 @@ def extract_needs(question: str, date: str | None, thinking: str) -> dict:
     needs = json.loads(m.group(0))
     needs["_llm"] = res
     return needs
+
+
+# --------------------------------------------------------------------------
+# 阶段 A2：多轮澄清 —— 信息不足时不开始规划，先追问
+# --------------------------------------------------------------------------
+
+# 顺序就是追问优先级：没有目的地整趟都无从谈起，起点与预算往后排。
+CLARIFY_SLOTS = ("目的地", "起点", "时间", "预算", "偏好")
+
+# 模型没问到某一项时的兜底问句。都给了"没说清就回 X"的出口，
+# 因为规则是"缺项才追问，明确说不限算通过"。
+CLARIFY_ASK = {
+    "起点": "你从哪儿出发？只想在本地玩就回\"本地\"。",
+    "目的地": "想去哪个城市或景区？",
+    "时间": "哪天出发、玩几天？让我定就回\"你看着安排\"。",
+    "预算": "总预算大概多少元？没有上限就回\"不限\"。",
+    "偏好": "有什么必去的地方或偏好？（美食、博物馆、亲子、避开人流…）没有就回\"都行\"。",
+}
+
+SYSTEM_CLARIFY = (
+    "你在帮人规划行程。信息不全时**不许开始规划**，先追问。读【对话】，只输出一个 JSON 对象：\n"
+    '{"needs":{...见下...},"filled":{"起点":"stated|waived|unknown","目的地":"...","时间":"...",'
+    '"预算":"...","偏好":"..."},'
+    '"questions":[{"slot":"预算","text":"一句中文追问","options":["300","800","不限"]}]}\n'
+    "needs 的字段与含义：\n" + EXTRACTION_SCHEMA + "\n"
+    "规则：\n"
+    "1. filled 五项都要给状态：题目或回答里明确说过 = stated；"
+    "用户明确表态\"不限 / 都行 / 你看着安排 / 就在本地\" = waived；压根没说 = unknown；\n"
+    "1b. 时间这一项：说了哪天出发、或说了玩几天，都算 stated（没给具体日期时系统按明天推算，"
+    "不要为了追问日期而反复问）；只有既没说日期也没说时长才算 unknown；\n"
+    "2. 目的地只能是 stated 或 unknown，**不许 waived**（不知道去哪就没法规划）；\n"
+    "3. 只为 unknown 的槽提问，顺序 目的地→起点→时间→预算→偏好，一次最多 3 条；"
+    "已经答过的槽不要再问；\n"
+    "4. 五项全是 stated/waived 时 questions 给空数组 []；\n"
+    "5. needs 里没说的字段照默认填（预算不限填 0、日期没给按日期提示），"
+    "但缺口以 filled 为准，别用默认值冒充 stated；【日期提示】给了具体日期时，"
+    "时间就算 stated（那是用户在表单/参数里选过的）；\n"
+    "6. options 给 2~4 个可直接点短答案，不确定就别给；"
+    "目的地的选项里不要放\"就在本地/你推荐\"这种没有具体地名的答案；\n"
+    "7. 不要输出 JSON 以外的任何字符。"
+)
+
+
+def clarify(turns: list[str], date: str | None, thinking: str) -> dict:
+    """把整段对话喂给模型，拿回合并后的 needs 与五项状态。
+
+    这**取代**了 extract_needs（同一次 LLM 调用，只是多输出一个状态块），
+    所以题目本来就写全时不会多花时间。missing 由代码算，不信模型自己说"齐了"：
+    模型漏问的槽用 CLARIFY_ASK 兜底，多问的槽（已明确的）直接丢掉。
+    """
+    dialogue = "\n".join(f"用户：{t}" for t in turns if str(t).strip())
+    res = llm(
+        [{"role": "system", "content": SYSTEM_CLARIFY},
+         {"role": "user", "content": f"日期提示：{date or '未给出，按明天'}\n【对话】\n{dialogue}"}],
+        max_tokens=560,
+        thinking=thinking,
+    )
+    got = extract_json(res["text"]) or {}
+    needs = got.get("needs") if isinstance(got.get("needs"), dict) else {}
+    filled = got.get("filled") if isinstance(got.get("filled"), dict) else {}
+    missing = [s for s in CLARIFY_SLOTS if str(filled.get(s) or "unknown").lower() not in ("stated", "waived")]
+    # 目的地不接受"不限/你推荐"：没有地名，路线与 POI 都无从查起，只能继续问。
+    if "目的地" not in missing and str(filled.get("目的地") or "").lower() == "waived":
+        missing.insert(0, "目的地")
+
+    questions = [q for q in (got.get("questions") or [])
+                 if isinstance(q, dict) and q.get("slot") in missing]
+    asked = {q["slot"] for q in questions}
+    questions += [{"slot": s, "text": CLARIFY_ASK[s], "options": []}
+                  for s in missing if s not in asked]
+    order = {s: i for i, s in enumerate(CLARIFY_SLOTS)}
+    questions.sort(key=lambda q: order.get(q["slot"], len(order)))   # 别按模型给的顺序问
+    res["missing"] = missing
+    res["questions"] = questions[:3]
+    res["ready"] = not missing
+    res["needs"] = needs
+    res["filled"] = {s: str(filled.get(s) or "unknown") for s in CLARIFY_SLOTS}
+    return res
 
 
 # --------------------------------------------------------------------------
@@ -1226,6 +1310,7 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
              thinking: str = "off", max_external: int = 0, max_extra: int = -1,
              facts: list[str] | None = None, json_mode: bool = False,
              skip_llm: bool = False, dry_run: bool = False, quiet: bool = False,
+             turns: list[str] | None = None, clarify_first: bool = True,
              on_stage=None) -> dict:
     """阶段 A→F 的编排。CLI 与 webapp 共用这一份，调用方不要再复制一遍流程。
 
@@ -1255,7 +1340,22 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
                 say(f"   [on_stage 异常 {type(exc).__name__}: {exc}]")
 
     if needs is not None:
+        # 调用方（web 的澄清会话）给的 needs 可能整块漏字段，先补齐再往下走。
+        needs = {**NEEDS_DEFAULTS, **needs}
         mark("A 需求抽取   由调用方提供，省掉 1 次 LLM")
+    elif clarify_first:
+        # 澄清与抽取是同一次 LLM：题目写全了就直接往下走，不多花时间。
+        clr = clarify([question, *(turns or [])], date, thinking)
+        llm_calls += 1
+        mark(f"A 澄清+抽取  LLM {clr['seconds']:.1f}s  in={clr['in_tokens']} "
+             f"out={clr['out_tokens']} reasoning={clr['reasoning_chars']}字  "
+             f"缺 {len(clr['missing'])} 项{'' if clr['ready'] else '：' + '、'.join(clr['missing'])}")
+        if not clr["ready"]:
+            return {"stage": "clarify", "question": question, "turns": list(turns or []),
+                    "missing": clr["missing"], "questions": clr["questions"],
+                    "filled": clr["filled"], "llm_calls": llm_calls,
+                    "seconds": time.perf_counter() - t_start, "trace": trace}
+        needs = {**NEEDS_DEFAULTS, **clr["needs"]}
     else:
         needs = extract_needs(question, date, thinking)
         llm1 = needs.pop("_llm")
@@ -1414,6 +1514,12 @@ def main() -> int:
     ap.add_argument("--fact", action="append", default=[],
                     help="补充事实（可重复），用于秘塔不可用时把现查到的城际票价喂给阶段 C")
     ap.add_argument("--out", default=".cache/plan_run.md")
+    ap.add_argument("--answer", action="append", default=[],
+                    help="对上一轮追问的回答（可重复）。终端里直接跑会交互式追问，脚本里用这个续答")
+    ap.add_argument("--no-clarify", action="store_true",
+                    help="关掉追问闸门：信息不全也按默认值直接规划（旧行为）")
+    ap.add_argument("--no-prompt", action="store_true",
+                    help="缺信息时不交互式提问，打印问题清单后以退出码 3 结束")
     args = ap.parse_args()
 
     if args.offline:
@@ -1448,17 +1554,54 @@ def main() -> int:
             print(f"    {i:2d}. {t_name} {json.dumps(t_args, ensure_ascii=False)}")
         return 0
 
-    res = run_plan(
-        args.question,
-        date=args.date,
-        needs=json.loads(args.needs) if args.needs else None,
-        thinking=args.thinking,
-        max_external=args.max_external,
-        max_extra=args.max_extra,
-        facts=args.fact,
-        json_mode=args.json,
-        skip_llm=args.skip_llm,
-    )
+    res = None
+    turns: list[str] = list(args.answer)
+    while True:
+        res = run_plan(
+            args.question,
+            date=args.date,
+            needs=json.loads(args.needs) if args.needs else None,
+            thinking=args.thinking,
+            max_external=args.max_external,
+            max_extra=args.max_extra,
+            facts=args.fact,
+            json_mode=args.json,
+            skip_llm=args.skip_llm,
+            turns=turns,
+            clarify_first=not args.no_clarify,
+        )
+        if res.get("stage") != "clarify":
+            break
+
+        def ask_list() -> None:
+            print("[clarify] 信息不足，没有开始规划。缺：" + "、".join(res["missing"]))
+            for q in res["questions"]:
+                opt = f"（可答：{' / '.join(str(o) for o in q['options'])}）" if q.get("options") else ""
+                print(f"  · {q['slot']}：{q['text']}{opt}")
+
+        if args.no_prompt or not sys.stdin.isatty():
+            # 非交互（脚本、CI、agent 调用）就把问题原样吐出去，让调用方带 --answer 重来。
+            ask_list()
+            print("[clarify] 补齐后重跑同一条命令并加 --answer '你的回答'（或直接在终端里跑，会交互式追问）")
+            return 3
+        print("[clarify] 信息不足，先回答这几项：")
+        answered = 0
+        try:
+            for q in res["questions"]:
+                opt = f" 可答 {' / '.join(str(o) for o in q['options'])}" if q.get("options") else ""
+                reply = input(f"  {q['text']}{opt}\n  > ").strip()
+                if reply:
+                    turns.append(reply)
+                    answered += 1
+        except EOFError:
+            # 终端里 stdin 被关闭（管道、后台跑）时别抛栈，退回打印问题清单。
+            if not answered:
+                ask_list()
+                print("[clarify] （读不到输入，改用清单）带 --answer 重跑即可续答")
+                return 3
+        if not answered:
+            print("[clarify] 一条都没答，停在这里。", file=sys.stderr)
+            return 3
 
     out_path = REPO_ROOT / args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)

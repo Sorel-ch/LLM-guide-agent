@@ -50,15 +50,92 @@ function setProgress(stages, elapsed) {
   }
 }
 
-$("#plan-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const question = $("#question").value.trim();
+/* ------------------------------------------------------------- 多轮澄清对话 */
+
+const CHAT = { sid: null, turns: [], ready: false, missing: [], questions: [], needs: null, busy: false };
+
+function addBubble(who, html) {
+  const el = document.createElement("div");
+  el.className = `bub ${who}`;
+  el.innerHTML = html;
+  const log = $("#chat-log");
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+  return el;
+}
+
+function replyHtml(r) {
+  if (r.ready) {
+    const n = r.needs || {};
+    const bits = [`起点 ${n.origin || "本地"}`, `目的地 ${n.destination_city}`,
+      `时间 ${n.days || 1} 天`, `预算 ${n.budget_yuan ? `${n.budget_yuan} 元` : "不限"}`,
+      `偏好 ${(n.themes || []).concat(n.must_visit || []).join("、") || "都行"}`];
+    return `<p>信息齐了，可以开始了。</p><p class="meta">${esc(bits.join(" ｜ "))}</p>`;
+  }
+  const qs = (r.questions || []).map((q) => `
+    <p class="q"><b>${esc(q.slot)}</b> ${esc(q.text)}</p>
+    ${(q.options || []).length
+      ? `<div class="chips">${q.options.map((o) => `<button class="chip" type="button" data-reply="${esc(o)}">${esc(o)}</button>`).join("")}</div>`
+      : ""}`).join("");
+  return `<p>还差 <b>${esc((r.missing || []).join("、"))}</b>，说一下就能继续：</p>${qs}
+          <p class="meta">点上面的短答案，或在下面自己写。</p>`;
+}
+
+function bindChips(scope) {
+  scope.querySelectorAll("[data-reply]").forEach((b) =>
+    b.addEventListener("click", () => sendChat(b.dataset.reply)));
+}
+
+function setSubmitState() {
+  $("#submit").disabled = !CHAT.ready || CHAT.busy;
+  $("#asked").textContent = CHAT.ready ? "五项已确认"
+    : CHAT.turns.length ? `还缺：${(CHAT.missing || []).join("、") || "接着回答上面"}` : "";
+}
+
+async function sendChat(text, { echo = true } = {}) {
+  const msg = String(text || "").trim();
+  if (!msg || CHAT.busy) return;
+  CHAT.busy = true;
+  $("#error").hidden = true;
+  if (echo) addBubble("me", esc(msg));
+  const typing = addBubble("agent", "想一下…");
+  setSubmitState();
+  try {
+    const r = await api("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sid: CHAT.sid, message: msg, date: $("#date").value || null }),
+    });
+    CHAT.sid = r.sid; CHAT.turns = r.turns || []; CHAT.ready = !!r.ready;
+    CHAT.missing = r.missing || []; CHAT.questions = r.questions || []; CHAT.needs = r.needs || null;
+    localStorage.setItem("chat_sid", r.sid);
+    typing.remove();
+    bindChips(addBubble("agent", replyHtml(r)));
+  } catch (err) {
+    typing.remove();
+    addBubble("agent", "刚才那句我没听清。");
+    fail(`追问没走通：${err.message}`);
+  } finally {
+    CHAT.busy = false;
+    setSubmitState();
+  }
+}
+
+// 改了起始日期就用最后那句重判一次：服务端对连续重复的消息不重复计入，只是拿新日期再跑一遍判定。
+function reask() {
+  if (CHAT.turns.length) sendChat(CHAT.turns[CHAT.turns.length - 1], { echo: false });
+}
+
+function greet() {
+  addBubble("agent", "想去哪儿玩？一句话说清<b>出发地、目的地、几天、预算、想玩什么</b>，"
+    + "缺什么我会接着问，问齐了才开始规划。");
+}
+
+async function startPlan() {
+  if (!CHAT.ready || !CHAT.turns.length || CHAT.busy) return;
   const offline = $("#offline").checked;
   const btn = $("#submit");
   $("#error").hidden = true;
   $("#manifest").hidden = true;
-  if (question.length < 4) return fail("题目至少写 4 个字。");
-
   btn.disabled = true;
   btn.textContent = offline ? "预演中…" : "规划中…";
   lastStages = ["已提交，等待任务开始…"];
@@ -77,7 +154,10 @@ $("#plan-form").addEventListener("submit", async (e) => {
     const res = await api("/api/plan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, date: $("#date").value || null, offline }),
+      body: JSON.stringify({
+        question: CHAT.turns[0], date: $("#date").value || null, offline,
+        needs: CHAT.needs, turns: CHAT.turns.slice(1),
+      }),
     });
     if (res.offline) renderManifest(res);
     else { renderPlan(res); show("plan"); }
@@ -85,14 +165,53 @@ $("#plan-form").addEventListener("submit", async (e) => {
     fail(err.message);
   } finally {
     clearInterval(tick); clearInterval(poll);
-    btn.disabled = false;
     btn.textContent = "开始规划";
+    setSubmitState();
     $("#timer").hidden = true;
     lastStages = [];
     $("#progress").hidden = true;
     $("#progress").innerHTML = "";
   }
+}
+
+$("#chat-send").addEventListener("click", () => {
+  const el = $("#chat-input");
+  const v = el.value; el.value = "";
+  sendChat(v);
 });
+$("#chat-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.isComposing) {
+    e.preventDefault();
+    const v = e.target.value; e.target.value = "";
+    sendChat(v);
+  }
+});
+$("#submit").addEventListener("click", startPlan);
+$("#date").addEventListener("change", reask);
+$("#chat-reset").addEventListener("click", () => {
+  Object.assign(CHAT, { sid: null, turns: [], ready: false, missing: [], questions: [], needs: null });
+  localStorage.removeItem("chat_sid");
+  $("#chat-log").innerHTML = "";
+  greet();
+  setSubmitState();
+});
+
+(async function restoreChat() {
+  const sid = localStorage.getItem("chat_sid");
+  if (!sid) { greet(); return; }
+  try {
+    const r = await api(`/api/chat/${encodeURIComponent(sid)}`);
+    CHAT.sid = sid; CHAT.turns = r.turns || []; CHAT.ready = !!r.ready;
+    CHAT.missing = r.missing || []; CHAT.questions = r.questions || []; CHAT.needs = r.needs || null;
+    if (!CHAT.turns.length) { greet(); return; }
+    CHAT.turns.forEach((t) => addBubble("me", esc(t)));
+    bindChips(addBubble("agent", replyHtml(r)));
+  } catch {
+    localStorage.removeItem("chat_sid");
+    greet();
+  }
+})();
+setSubmitState();
 
 function renderManifest(m) {
   $("#manifest").hidden = false;

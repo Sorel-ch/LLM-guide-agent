@@ -22,12 +22,20 @@
 </header>
 
 <main>
-  <!-- 视图 1：输入页 -->
+  <!-- 视图 1：对话页（信息问齐了才允许开始规划） -->
   <section id="view-input" class="view">
-    <form id="plan-form" class="panel" autocomplete="off">
-      <label class="kicker" for="question">题目</label>
-      <textarea id="question" rows="3" maxlength="600"
-        placeholder="例：从杭州出发去成都三日游，预算2000元，想吃川菜、看大熊猫"></textarea>
+    <div class="panel chat">
+      <div class="chat-head">
+        <h2>先说清楚去哪儿</h2>
+        <span class="meta" id="chat-state">起点、目的地、时间、预算、偏好齐了才开始规划</span>
+        <button class="ghost" id="chat-reset" type="button">新对话</button>
+      </div>
+      <div id="chat-log" class="chat-log" role="log" aria-live="polite"></div>
+      <div class="chat-row">
+        <input id="chat-input" type="text" maxlength="600" autocomplete="off"
+          placeholder="例：从杭州出发去成都三日游，预算2000元，想吃川菜、看大熊猫">
+        <button id="chat-send" class="primary" type="button">发送</button>
+      </div>
       <div class="row">
         <div class="field">
           <label class="kicker" for="date">起始日期</label>
@@ -40,12 +48,13 @@
         </label>
       </div>
       <div class="actions">
-        <button id="submit" class="primary" type="submit">开始规划</button>
+        <button id="submit" class="primary" type="button" disabled>开始规划</button>
+        <span id="asked" class="meta"></span>
         <span id="timer" class="timer" hidden></span>
       </div>
       <ol id="progress" class="progress" hidden></ol>
       <p id="error" class="error" hidden></p>
-    </form>
+    </div>
 
     <section id="manifest" class="panel" hidden>
       <h2>将要发出的外部调用</h2>
