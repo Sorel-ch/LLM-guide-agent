@@ -94,6 +94,9 @@ SYSTEM_PLAN = (
     "1. 只输出紧凑方案本身：每段一行，形如 'HH:MM-HH:MM 地点 | 交通方式与耗时 | 花费'；\n"
     "2. 严禁复述工具返回内容、严禁解释你的推理、严禁逐条标注来源；\n"
     "2b. 【POI】给的人均是消费水平，不是门票价：景点花费没在数据里明确出现过就写待核实；\n"
+    "2c. 类=餐饮服务/住宿服务 的条目可以按【POI】人均写花费并注明\"人均参考\"；"
+    "多日题每天末尾要有住宿条目，name 照抄【POI】里的酒店名；"
+    "同一个景点或餐厅不要在多天里重复出现（住宿除外）；\n"
     f"3. 总长不超过 {PLAN_CHAR_LIMIT} 字：每段一行可以短，但题目要求的内容类别（景点、餐饮、住宿、往返）"
     "都要各自出现。\n"
 )
@@ -126,10 +129,14 @@ SYSTEM_PLAN_JSON = (
     "1. 题目是 N 天就给 N 个 day，day 从 1 连续编号；一日游就一个 day；每天给一个 theme；\n"
     "2. 景点/餐饮/住宿的 name 必须照抄【POI】或【知识库】里出现的名称，不要改写或加简称——"
     "坐标与照片由程序按这个名字回查；\n"
+    "2b. 多日题每天末尾放一条 type=hotel 的住宿（连续几天写同一家可以）；"
+    "住宿与餐饮的 name 要取【POI】里 类=住宿服务/餐饮服务 的那条（坐标与人均按这个名字回查），"
+    "不要写知识库里顺带提到的连锁名；除此之外同一个 name 不要在多天里重复出现；\n"
     "3. 交通段 name 写 '甲→乙'，transport 写方式与耗时；没有任何实测数据时 transport 写\"交通待核实\"；\n"
     "4. cost 只填有依据的数字（单位元）：【POI】【路段】或【网页摘要】里给过的才填，免费填 0，"
     "查不到就填 null，不许估算；【POI】里的人均是消费水平不是门票价，"
-    "景点没给过明确票价就别把人均填进 cost；\n"
+    "景点没给过明确票价就别把 cost 填成人均；类=餐饮服务/住宿服务 的可以拿人均填 cost，"
+    "并在 tip 写明\"人均参考\"；\n"
     "5. source：这条的依据出自【知识库】写 wiki，出自【POI】【路段】【天气】写 amap，"
     "出自【网页摘要】写 metaso，凭空来的写 none；\n"
     f"6. 严禁解释、严禁 markdown 代码块以外的字符，总长不超过 {PLAN_CHAR_LIMIT} 字，"
@@ -336,6 +343,10 @@ def collect_pois(results: list, pois: dict[str, dict], city: str) -> str | None:
             biz = p.get("business") or {}
             pois.setdefault(p["name"], {"coord": f"{lon},{lat}", "lon": lon, "lat": lat,
                                         "adcode": p.get("adcode"),
+                                        "type": p.get("type"), "typecode": p.get("typecode"),
+                                        # 记住这条是哪一次检索带回来的：渲染台账时按检索词配额，
+                                        # 否则先回来的那一批（车站的十几条地铁站）会把后面的酒店餐厅整批挤掉。
+                                        "q": args.get("keywords"),
                                         "price": (p.get("biz_ext") or {}).get("price"),
                                         "cost": (p.get("biz_ext") or {}).get("cost") or biz.get("cost"),
                                         "rating": biz.get("rating"),
@@ -380,7 +391,7 @@ def plan_wave1(needs: dict, wiki_text: str, max_external: int) -> list[tuple[str
     单独拆出来是为了 web 的"离线预演"：把清单原样给用户看，一条外部请求都不发。
 
     排列只是为了 --max-external 截断时先砍谁：必去点 → 车站 → 高铁站 → 出发地
-    → wiki 点名的景点 → 主题词 → 泛景点。
+    → wiki 点名的景点 → 住宿 → 主题词 → 餐厅 → 泛景点。
     """
     city = needs["destination_city"]
     origin = needs.get("origin") or ""
@@ -403,8 +414,16 @@ def plan_wave1(needs: dict, wiki_text: str, max_external: int) -> list[tuple[str
     for name in wiki_sights(wiki_text, needs, limit=3):
         if not any(name in c[1]["keywords"] or c[1]["keywords"] in name for c in calls):
             calls.append(poi_call(name, city, 3))
+    # 住宿要排在主题词之前：台账渲染有 30 行上限，`{city}美食` 一次就吃掉 8 行，
+    # 排在它后面的酒店检索就整批进不了模型视野（成都实测：上下文里 0 条住宿服务）。
+    if (_num(needs.get("days")) or 1) >= 2:
+        calls.append(poi_call(f"{city}酒店", city, 5))
     for th in (needs.get("themes") or [])[:2]:
         calls.append(poi_call(f"{city}{th}", city, 5))
+    # 题目没点"美食"也得有餐厅可写：prompt 要求餐饮这一类必须出现，没有台账条目撑着，
+    # 模型就凭空编一个名字，回查不到坐标与人均（成都那次两天都写"成都美食汇"）。
+    if not any(re.search(r"[食餐吃菜味]", str(th)) for th in (needs.get("themes") or [])):
+        calls.append(poi_call(f"{city}餐厅", city, 5))
     calls.append(poi_call(f"{city}景点", city, 10))
     metaso_calls = ([("metaso_web_search",
                       {"q": f"{origin_city or city}到{city} 高铁时刻表 票价", "size": 5})]
@@ -644,7 +663,15 @@ def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
         return (n.endswith("站") or "火车站" in n or "地铁站" in n
                 or "汽车站" in n or "客运中心" in n or station_junk.search(n))
 
-    sights = [n for n in pois if in_target(n) and n not in origin_out and not is_station_like(n)]
+    # 住宿不进景点链：typecode 100xxx 是高德的"住宿服务"，检索回来的酒店散在全城，
+    # 让它们进链条既白吃路段配额，又会把地图视野拽到几十公里外。
+    lodging_name = re.compile(r"酒店|宾馆|旅馆|民宿|客栈|招待所|青年旅舍")
+
+    def is_lodging_like(n: str) -> bool:
+        return str(pois[n].get("typecode") or "").startswith("100") or bool(lodging_name.search(n))
+
+    sights = [n for n in pois if in_target(n) and n not in origin_out
+              and not is_station_like(n) and not is_lodging_like(n)]
     # 同地点细分要合并（"鲁迅故里-鲁迅故居"相距 72 m、园内"4号别墅"与母点同园区）：
     # 让它们进链条只会白吃路段配额，真实景点之间反而测不到通勤。
     # 光靠名称包含不够——成都实测：`成都大熊猫繁育研究基地` 的园点子点名不含母点全称，
@@ -742,9 +769,29 @@ def build_context(needs: dict, wiki_text: str, ext: dict, facts: list[str] | Non
     if ext["pois"]:
         # business.cost 是人均消费，对餐饮/住宿有用，对景点是游客综合消费——别当门票用（沈园实测 163）。
         lines.append("【POI（坐标/开放时间/评分，来自高德 v5；v5 不返回门票价格，人均≠票价）】")
-        for n, p in list(ext["pois"].items())[:30]:
+        # 按检索词给配额：全局 30 行先到先得时，`{city}站` 带回的一堆地铁站会把后面的
+        # 酒店、餐厅整批挤出去（实测两种排法各挤掉一类，被挤掉的那一类模型只能凭空编名字）。
+        shown: list[tuple[str, dict, str]] = []
+        per_q: dict[str, int] = {}
+        n_trans = 0
+        for n, p in ext["pois"].items():
+            kind = (p.get("type") or "").split(";")[0] or "未给"
+            if kind == "交通设施服务":
+                if n_trans >= 4:
+                    continue
+                n_trans += 1
+            q = p.get("q")
+            if q and per_q.get(str(q), 0) >= 5:
+                continue
+            if q:
+                per_q[str(q)] = per_q.get(str(q), 0) + 1
+            shown.append((n, p, kind))
+            if len(shown) >= 34:
+                break
+        for n, p, kind in shown:
             price = p.get("price") or p.get("cost") or "未给"
-            lines.append(f"  {n} | {p['lon']},{p['lat']} | 人均={price} "
+            # 类别直接给出来，模型才知道这条人均能不能当花费：餐饮服务=餐费、住宿服务=住宿费。
+            lines.append(f"  {n} | 类={kind} | {p['lon']},{p['lat']} | 人均={price} "
                          f"评分={p.get('rating') or '未给'} | 开放={str(p.get('opentime'))[:70]}")
     for tool_name, args, payload in ext["results"]:
         d = payload.get("data") or {}
@@ -1324,11 +1371,16 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.offline:
-        needs = {"origin": "出发地", "destination_city": "绍兴", "intercity": True,
-                 "days": 1, "budget_yuan": 300, "must_visit": [], "themes": ["美食"],
-                 "need_intercity_ticket": True}
+        # 不调模型，所以题目里的城市/天数抽不出来：默认用这份夹具，
+        # 要看某一题的取数面就配 --needs 一起用。
+        needs = json.loads(args.needs) if args.needs else {
+            "origin": "出发地", "destination_city": "绍兴", "intercity": True,
+            "days": 1, "budget_yuan": 300, "must_visit": [], "themes": ["美食"],
+            "need_intercity_ticket": True}
         wiki_text, pages = wiki_bundle(needs)
+        calls = plan_wave1(needs, wiki_text, args.max_external)
         print(
+            f"[offline] 需求夹具：{json.dumps(needs, ensure_ascii=False)}\n"
             f"[offline] 知识库命中 {len(pages)} 页（上限 {WIKI_MAX_PAGES}）：{pages}\n"
             f"[offline] 取数不设三波顺序与配额（①③已删）：全部 POI 检索 + 1 次秘塔"
             f"（跨城且 wiki 没写高铁票价时）同波并发 → 1 次天气 + 全部主干路段"
@@ -1345,6 +1397,9 @@ def main() -> int:
             f"（抽取 + 初稿 [+ 缺口 + 终稿]）"
             + ("，JSON 模式再加 0~1 次分块补轮" if args.json else "") + "；"
             f"注入上下文字符 {len(wiki_text)}")
+        print("[offline] 第一波清单（POI 与秘塔同波并发；天气与路段要等 POI 坐标回来，不列在这里）：")
+        for i, (t_name, t_args) in enumerate(calls, 1):
+            print(f"    {i:2d}. {t_name} {json.dumps(t_args, ensure_ascii=False)}")
         return 0
 
     res = run_plan(
