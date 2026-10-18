@@ -105,7 +105,8 @@ SYSTEM_PLAN = (
     "1. 只输出紧凑方案本身：每段一行，形如 'HH:MM-HH:MM 地点 | 交通方式与耗时 | 花费'；\n"
     "2. 严禁复述工具返回内容、严禁解释你的推理、严禁逐条标注来源；\n"
     "2b. 【POI】给的人均是消费水平，不是门票价：景点花费没在数据里明确出现过就写待核实；\n"
-    "2c. 类=餐饮服务/住宿服务 的条目可以按【POI】人均写花费并注明\"人均参考\"；"
+    "2c. 类=餐饮服务/住宿服务 的条目可以按【POI】人均写花费并注明\"人均参考\""
+    "（这个数字是从数据里取到的，别再补一句\"未实测\"）；"
     "多日题在每个要过夜的晚上末尾要有住宿条目（最后一天返程就不排），name 照抄【POI】里的酒店名；"
     "同一个景点或餐厅不要在多天里重复出现（住宿除外）；\n"
     f"3. 总长不超过 {PLAN_CHAR_LIMIT} 字：每段一行可以短，但题目要求的内容类别（景点、餐饮、住宿、往返）"
@@ -151,7 +152,8 @@ SYSTEM_PLAN_JSON = (
     "4. cost 只填有依据的数字（单位元）：【POI】【路段】或【网页摘要】里给过的才填，免费填 0，"
     "查不到就填 null，不许估算；【POI】里的人均是消费水平不是门票价，"
     "景点没给过明确票价就别把 cost 填成人均；类=餐饮服务/住宿服务 的可以拿人均填 cost，"
-    "并在 tip 写明\"人均参考\"；\n"
+    "并在 tip 写明\"人均参考\"——人均取到就说明数字是有依据的，"
+    "这条 tip 里不要再出现\"未实测\"，只有 cost 填 null 时才写\"未实测\"；\n"
     "5. source：这条的依据出自【知识库】写 wiki，出自【POI】【路段】【天气】写 amap，"
     "出自【网页摘要】写 metaso，凭空来的写 none；\n"
     f"6. 严禁解释、严禁 markdown 代码块以外的字符，总长不超过 {PLAN_CHAR_LIMIT} 字，"
@@ -1160,6 +1162,19 @@ def useful_hours(kind: str, value) -> str | None:
     return text
 
 
+# 人均与"未实测"不能同时出现在一条卡片上：cost 里的数字要么就是从台账人均回填的、
+# 要么就是模型照抄【POI】人均的，两种都是取到了的数据。宁波实测 3 条餐（阿娇 100、
+# 意卡菲 85、南塘 100）都写着"人均参考未实测"，钱明明在场——那是 prompt 里"tip 写明
+# 人均参考"被模型自行补的后半句。cost 为 null 时这句是真话，必须留着。
+PEOPLE_UNVERIFIED_RE = re.compile(r"(人均[^，。；]{0,6}?)未实测")
+
+
+def normalize_people_tip(row: dict) -> None:
+    if row["cost"] is None or row["type"] not in ("meal", "hotel") or not row.get("tip"):
+        return
+    row["tip"] = PEOPLE_UNVERIFIED_RE.sub(r"\1", str(row["tip"]))
+
+
 def ledger_lookup(name: str, pois: dict) -> tuple[dict | None, bool]:
     """模型写的条目名回查高德台账，返回 (条目, 是否精确)。
 
@@ -1401,6 +1416,7 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                 row["source"] = "amap_direction"
                 if row["cost"] is None and leg["fee"] is not None:
                     row["cost"] = leg["fee"]
+            normalize_people_tip(row)
             items.append(row)
         date = (datetime.strptime(start, "%Y-%m-%d") + timedelta(days=d["day"] - 1)).strftime("%Y-%m-%d")
         out_days.append({"day": d["day"], "date": date, "theme": d.get("theme"), "timeline": items})
