@@ -36,7 +36,10 @@ sys.path.insert(0, str(REPO_ROOT / "mcp"))
 import plan_agent as pa  # noqa: E402  （导入时已加载仓库根 .env）
 
 # 网页用户手滑连点比 CLI 贵，这一条只作用于 web 入口，不改 CLI 默认（第 5 节）。
-MAX_EXTERNAL_WEB = 24
+# 软上限要盖住"取数面 + 路段 + 补查"三段：24 时主波 13 条 POI + 天气 + 7 条路段就见底了，
+# 而终稿有 11 条交通段——4 条根本没测过，前端只能显示"路线待实测"；
+# 代码必查的缺口又不受这条软上限约束（宁波实测跑到 25 次），所以干脆给足。
+MAX_EXTERNAL_WEB = 32
 LIST_LIMIT = 20
 PLAN_ID_RE = re.compile(r"^[\w.\-一-鿿]{1,120}$")
 SID_RE = re.compile(r"^[0-9a-f]{8,32}$")   # 会话 id 只收十六进制，路径拼接前先看这个

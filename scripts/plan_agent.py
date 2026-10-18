@@ -87,7 +87,12 @@ POI_SHOW_FIELDS = "business,photos"   # 前端卡片要 rating/opentime/photo
 LODGING_TYPECODE = "100000"           # 高德分类编码：住宿服务
 LODGING_RADIUS_M = 4000               # 住宿周边搜半径：一天走到的范围
 LODGING_KEEP = 5                      # 台账里最多留几条住宿行（按离游览区最近排）
-SUGGEST_STOPS_PER_DAY = 4             # 建议链每天最多几站，再多模型只抄其中一段
+SUGGEST_STOPS_PER_DAY = 4             # 建议链每天最多几站：放宽到 5 实测会把海曙与东部新城
+                                      # 混进同一天（day1 折返比 1.0 → 1.58），这条不能松
+# 台账里不渲染这几类：放宽到 44 行后多出来的 11 行全是它们（售票处/公司/商务住宅/地名地址/购物），
+# 既不能当景点也不能当餐宿，白占模型视野。景点/餐/宿/交通四类留着。
+LEDGER_SKIP_KINDS = ("公司企业", "商务住宅", "地名地址信息", "生活服务",
+                     "购物服务", "公共设施")
 
 # 补查轮里模型爱加引号的数字参数，按工具列出只修类型（不做范围夹取，那是已删的⑦）。
 NUMERIC_ARGS = {"get_amap_poi_search": ("offset", "page", "radius"),
@@ -536,7 +541,9 @@ def plan_wave1(needs: dict, wiki_text: str, max_external: int) -> list[tuple[str
         and "高铁" not in wiki_text
 
     calls: list[tuple[str, dict]] = []
-    for kw in (needs.get("must_visit") or [])[:2]:
+    # 必去点与主题各放宽到 3 个：只检索前两个时，用户写"想看 A、B、C"里的 C
+    # 从来没进过台账，卡片上就没有坐标、照片和开放时间。
+    for kw in (needs.get("must_visit") or [])[:3]:
         calls.append(poi_call(kw if city in kw else f"{city}{kw}", city, 3))
     calls.append(poi_call(f"{city}站", city, 4))
     # 只搜 `{city}站` 拿到的是普速站（成都那次连"成都站(建设中)"都进来了），
@@ -555,7 +562,7 @@ def plan_wave1(needs: dict, wiki_text: str, max_external: int) -> list[tuple[str
     # 排在它后面的酒店检索就整批进不了模型视野（成都实测：上下文里 0 条住宿服务）。
     if (_num(needs.get("days")) or 1) >= 2:
         calls.append(poi_call(f"{city}酒店", city, 5))
-    for th in (needs.get("themes") or [])[:2]:
+    for th in (needs.get("themes") or [])[:3]:
         calls.append(poi_call(f"{city}{th}", city, 5))
     # 题目没点"美食"也得有餐厅可写：prompt 要求餐饮这一类必须出现，没有台账条目撑着，
     # 模型就凭空编一个名字，回查不到坐标与人均（成都那次两天都写"成都美食汇"）。
@@ -718,7 +725,7 @@ def draft_items(draft: str) -> list[dict]:
     return items
 
 
-def forced_gap_asks(draft: str, pois: dict, city: str, year: str, cap: int = 6) -> list[dict]:
+def forced_gap_asks(draft: str, pois: dict, city: str, year: str, cap: int = 8) -> list[dict]:
     """代码算出"初稿里哪些条目没坐标、哪些没价格"，直接排进补查队列。
 
     补查轮原先完全由模型自由发挥，它看不到"哪几条 cost 是 null"，
@@ -955,7 +962,9 @@ def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
     chain = [seed]
     remaining = [s for s in sights if s != seed and s != hub]
     # ③已删：budget<=0 时链条覆盖全部合并后的景点，不再限 3~6 个。
-    chain_cap = max(3, min(6, int(budget))) if budget and budget > 0 else len(sights)
+    # 上限从 6 提到 10：终稿每天有 5~6 站、多日题两三天，6 个点的链覆盖不住，
+    # 宁波实测请求 7 条路段而方案里有 11 条交通段——4 条只能显示"路线待实测"。
+    chain_cap = max(3, min(10, int(budget))) if budget and budget > 0 else len(sights)
     while remaining and len(chain) < chain_cap:
         nxt = min(remaining, key=lambda c: dist(chain[-1], c))
         chain.append(nxt)
@@ -987,6 +996,11 @@ def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
 EARTH_R_KM = 6371.0088
 BALANCE_MAX_KM = 10.0     # 分天平衡时允许挪动的最远距离，超过就当离群点不挪
 SAME_PLACE_MAX_KM = 0.4   # 相距小于这个数的台账条目算同一个地点
+# 泛检索词带回来的东西不能算"这道题点名的"：`{city}景点` 捞回的是儿童公园/文化广场/五一广场，
+# 高德评分 4.5+ 一堆，按评分排会把真景点挤掉（放宽到每天 5 站那次实测，day2 整条变成逛广场，
+# 宁波博物院反而出局）。带回来的那次检索是 targeted 的，这个判据不受名字变体影响
+# （ledger 叫"宁波博物院"、wiki 写"宁波博物馆"，`n in wiki_text` 判不中）。
+GENERIC_QUERY_RE = re.compile(r"景点|美食|餐厅|酒店|购物|娱乐|高铁站|站$|市区|城区")
 POI_JUNK_RE = re.compile(
     r"[(（][^()（）]{0,8}(建设中|在建|进站|出站|检票|售票|停车|进出口|入口|出口|装修)"
     r"|站(北|南|东|西)?广场")
@@ -1180,8 +1194,10 @@ def suggest_order(needs: dict, pois: dict, adcode: str | None, hints: str = "") 
         must = needs.get("must_visit") or []
 
         def rank(n: str) -> tuple:
+            named = not GENERIC_QUERY_RE.search(str(pois[n].get("q") or "")) or (
+                len(n) >= 4 and n in hints)
             return (not any(m and (m in n or n in m) for m in must),
-                    not (len(n) >= 4 and n in hints),
+                    not named,
                     -(_num(pois[n].get("rating")) or 0.0))
 
         stops = sorted(stops, key=rank)[:cap]
@@ -1238,6 +1254,8 @@ def build_context(needs: dict, wiki_text: str, ext: dict, facts: list[str] | Non
             # 稳定排序：只把"离游览区最近的那几家住宿"提到前面。它们本来排在台账末尾
             # （周边搜是第二波才回来的），34 行名额轮不到它，模型就只能看见溪口那几家。
             kind = (p.get("type") or "").split(";")[0] or "未给"
+            if kind in LEDGER_SKIP_KINDS:
+                continue
             if keep_lodging and kind == "住宿服务" and n not in keep_lodging:
                 continue
             if kind == "交通设施服务":
@@ -1245,12 +1263,15 @@ def build_context(needs: dict, wiki_text: str, ext: dict, facts: list[str] | Non
                     continue
                 n_trans += 1
             q = p.get("q")
-            if q and per_q.get(str(q), 0) >= 5:
+            if q and per_q.get(str(q), 0) >= 6:
                 continue
             if q:
                 per_q[str(q)] = per_q.get(str(q), 0) + 1
             shown.append((n, p, kind))
-            if len(shown) >= 34:
+            # 34 行顶到过：宁波实测台账正好渲染 34 行（后面还有内容被砍），
+            # 而模型要在"必去点/餐/宿/交通"四类之间挑，砍掉的那类它就凭空编名字。
+            # 行数是输入侧，多几百字符不影响耗时（瓶颈在最后一轮的解码）。
+            if len(shown) >= 44:
                 break
         for n, p, kind in shown:
             price = p.get("price") or p.get("cost") or "未给"
