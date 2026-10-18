@@ -78,6 +78,11 @@ WIKI_MAX_PAGES = 8          # 注入上下文的 wiki 页数
 WIKI_MAX_CHARS = 14000      # wiki 块总预算
 POI_SHOW_FIELDS = "business,photos"   # 前端卡片要 rating/opentime/photo
 
+# 补查轮里模型爱加引号的数字参数，按工具列出只修类型（不做范围夹取，那是已删的⑦）。
+NUMERIC_ARGS = {"get_amap_poi_search": ("offset", "page", "radius"),
+                "get_amap_direction": ("strategy", "cartype", "nightflag", "alternative_route"),
+                "metaso_web_search": ("size",)}
+
 SYSTEM_EXTRACT = (
     "你只做需求抽取，不要规划、不要解释。读用户题目，只输出一个 JSON 对象，字段与含义：\n"
     + EXTRACTION_SCHEMA
@@ -532,6 +537,12 @@ def gap_calls(asks: list) -> tuple[list, list[str]]:
         # 秘塔的参数名是 q，模型按直觉写 query（实测一轮 4 条全因此作废）。
         if tool.startswith("metaso") and "q" not in args and args.get("query"):
             args = {**args, "q": args.pop("query")}
+        # 数字参数模型常写成字符串（"size":"5"），工具内部拿它跟 int 比大小就 TypeError，
+        # 一条本来有效的补查就这么丢了。这里只修类型，不做⑦那套白名单与夹取。
+        for key in NUMERIC_ARGS.get(tool, ()):
+            v = args.get(key)
+            if isinstance(v, str) and v.strip().lstrip("-").isdigit():
+                args = {**args, key: int(v.strip())}
         key = json.dumps(args, sort_keys=True, ensure_ascii=False)
         if any(json.dumps(a, sort_keys=True, ensure_ascii=False) == key for _, a in out):
             continue
@@ -599,16 +610,17 @@ def gap_round(context: str, question: str, pois: dict, city: str, adcode: str | 
 
 def run_one(tool_name: str, args: dict, quiet: bool):
     # ⑨已删：秘塔 UPSTREAM_NO_RESULT 不再原参数重发，失败即返回。
-    # 例外是高德的 CUQPS（个人 key 的并发上限）——一波 6 并发实测 5/18 条栽在它上面，
-    # 那不是数据没有，是请求被挤掉了，等半秒重发一次就回得来。
+    # 例外是高德的 CUQPS（个人 key 的并发上限）——那不是数据没有，是请求被挤掉了。
+    # 并发压到 2 之后实测仍会撞（2026-10-18 一跑撞两次，都是重发一次仍挂那一档），
+    # 所以退避着重试到第 3 次：0.6s、1.2s。
     attempts = 0
     t0 = time.perf_counter()
     while True:
         attempts += 1
         payload = _run_once(tool_name, args)
         msg = str(payload.get("error_msg") or "")
-        if attempts == 1 and not payload.get("ok") and "CUQPS" in msg:
-            time.sleep(0.6)
+        if attempts < 3 and not payload.get("ok") and "CUQPS" in msg:
+            time.sleep(0.6 * attempts)
             continue
         break
     if not quiet:
@@ -960,6 +972,27 @@ def ledger_lookup(name: str, pois: dict) -> tuple[dict | None, bool]:
     return (pois[hits[0]], False) if len(hits) == 1 else (None, False)
 
 
+def origin_point(needs: dict, pois: dict) -> dict | None:
+    """出发地在台账里的那一个点，给前端画"起"标记用。
+
+    出发地通常只出现在交通段的名字里（"甲→乙"），而 transit 条目故意不做台账回查
+    （防蹭终点的照片与开放时间），所以方案跑到现在地图上一直没有起点。
+    认法用"哪次检索带回的"而不是名字匹配：`杭电下沙校区` 检索回来的第一条就是
+    `杭州电子科技大学(下沙校区)`，拿名字去 ledger_lookup 反而一条都不含（"杭电"是简称）。
+    """
+    origin = str(needs.get("origin") or "").strip()
+    if not origin or origin == str(needs.get("origin_city") or "").strip():
+        return None
+    name = next((n for n, p in pois.items() if str(p.get("q") or "") == origin), None)
+    if name is None:
+        poi, _ = ledger_lookup(origin, pois)
+        if not poi:
+            return None
+        return {"name": origin, "location": {"lng": float(poi["lon"]), "lat": float(poi["lat"])}}
+    p = pois[name]
+    return {"name": name, "location": {"lng": float(p["lon"]), "lat": float(p["lat"])}}
+
+
 def match_leg(name: str, transport: str, legs: list[dict]) -> dict | None:
     """交通段回查实测路段：按 name/transport 里出现的端点名计数，两端都命中才算数。"""
     text = f"{name} {transport}"
@@ -1171,6 +1204,7 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                     "llm_calls": llm_calls + extra_llm, "seconds": round(seconds, 1),
                     "failures": call_failures(ext)},
         "days": out_days,
+        "origin_point": origin_point(needs, ext["pois"]),
         "degraded": False,
     }
 

@@ -1,6 +1,11 @@
 /* 视觉与层级参考 FloatTrip 详情页（只参考信息层级与样式，代码新写，见 docs/frontend-plan.md 第 1 节）。
  * 关键层级：时间列 38px → 节点图标 23px → 卡片 1fr；中转是卡片之间的胶囊，不是卡片。 */
 
+/* 这套样式只有浅色，声明一下让浏览器别自作主张配深色。
+ * 实测：headless Edge 的 force-dark 在绘制层反色，getComputedStyle 仍返回浅色值，
+ * 所以截图发黑不等于页面坏了（要看得准就给它加 --disable-features=WebContentsForceDark）。 */
+html { color-scheme: light; }
+
 :root {
   --bg: #f5f8fc;
   --card: #ffffff;
@@ -301,6 +306,8 @@ button.ghost { background: #fff; border: 1px solid var(--line); color: var(--ink
 .mk.meal { border-color: #b06a1f; color: #b06a1f; }
 .mk.hotel { border-color: #1c7f6f; color: #1c7f6f; }
 .mk.transit { border-color: #6b7385; color: #6b7385; }
+/* 起点不是行程条目，做成实心以区别于编号圆点 */
+.mk.origin { background: var(--accent); border-color: #fff; color: #fff; }
 
 .iw { max-width: 230px; font-size: 12px; line-height: 1.5; }
 .iw b { display: block; font-size: 13px; margin-bottom: 2px; }
