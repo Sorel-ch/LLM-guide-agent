@@ -116,8 +116,8 @@ SYSTEM_PLAN = (
     "1. 只输出紧凑方案本身：每段一行，形如 'HH:MM-HH:MM 地点 | 交通方式与耗时 | 花费'；\n"
     "2. 严禁复述工具返回内容、严禁解释你的推理、严禁逐条标注来源；\n"
     "2b. 【POI】给的人均是消费水平，不是门票价：景点花费没在数据里明确出现过就写待核实；\n"
-    "2c. 类=餐饮服务/住宿服务 的条目可以按【POI】人均写花费并注明\"人均参考\""
-    "（这个数字是从数据里取到的，别再补一句\"未实测\"）；"
+    "2c. 类=餐饮服务/住宿服务 的条目可以按【POI】人均写花费，并在同行末尾写全那句\"人均参考 100 元\""
+    "（带数字；只写\"人均参考\"等于把取到的金额弄丢；这个数字是从数据里取到的，别再补一句\"未实测\"）；"
     "多日题在每个要过夜的晚上末尾要有住宿条目（最后一天返程就不排），name 照抄【POI】里的酒店名，"
     "并挑离当天最后一站最近的那家；同一个景点或餐厅不要重复出现（住宿除外）；\n"
     "2d. 有【建议顺序】就照它给的先后排：那是按坐标聚类算出来的，每天只走属于那一天那一段，"
@@ -169,8 +169,10 @@ SYSTEM_PLAN_JSON = (
     "4. cost 只填有依据的数字（单位元）：【POI】【路段】或【网页摘要】里给过的才填，免费填 0，"
     "查不到就填 null，不许估算；【POI】里的人均是消费水平不是门票价，"
     "景点没给过明确票价就别把 cost 填成人均；类=餐饮服务/住宿服务 的可以拿人均填 cost，"
-    "并在 tip 写明\"人均参考\"——人均取到就说明数字是有依据的，"
-    "这条 tip 里不要再出现\"未实测\"，只有 cost 填 null 时才写\"未实测\"；\n"
+    "并在 tip 里把那句写全、带数字（形如\"人均参考 100 元，本地排队王\"），"
+    "只写\"人均参考\"四个字等于把已经取到的金额弄丢；"
+    "人均取到就说明数字有依据，这条 tip 里不要再出现\"未实测\"，"
+    "只有 cost 填 null 时才写\"未实测\"；\n"
     "5. source：这条的依据出自【知识库】写 wiki，出自【POI】【路段】【天气】写 amap，"
     "出自【网页摘要】写 metaso，凭空来的写 none；\n"
     f"6. 严禁解释、严禁 markdown 代码块以外的字符，总长不超过 {PLAN_CHAR_LIMIT} 字，"
@@ -1454,12 +1456,26 @@ def useful_hours(kind: str, value) -> str | None:
 # 意卡菲 85、南塘 100）都写着"人均参考未实测"，钱明明在场——那是 prompt 里"tip 写明
 # 人均参考"被模型自行补的后半句。cost 为 null 时这句是真话，必须留着。
 PEOPLE_UNVERIFIED_RE = re.compile(r"(人均[^，。；]{0,6}?)未实测")
+PEOPLE_LABEL_RE = re.compile(r"(人均参考|人均)")
+# "带数字"只认紧跟在"人均"后面那几个字里的数字，否则"人均参考，10:30 后好坐"
+# 会因为句中有时间数字而被当成已经写全。
+PEOPLE_WITH_NUM_RE = re.compile(r"(?:人均参考|人均)[^，。；]{0,4}?\d")
 
 
 def normalize_people_tip(row: dict) -> None:
-    if row["cost"] is None or row["type"] not in ("meal", "hotel") or not row.get("tip"):
+    """餐宿卡片上"人均"这句话必须带数字：模型要么写成"人均参考未实测"（钱明明在场），
+    要么被规则逼成只剩"人均参考"四个字（宁波实测两家餐厅的正文就只剩标签，
+    100 元与 80 元只藏在展开的详情里，看上去像数据缺失）。两种都由代码按 cost 归一。"""
+    if row["cost"] is None or row["type"] not in ("meal", "hotel"):
         return
-    row["tip"] = PEOPLE_UNVERIFIED_RE.sub(r"\1", str(row["tip"]))
+    money = f"人均参考 {int(round(row['cost']))} 元"
+    tip = PEOPLE_UNVERIFIED_RE.sub(r"\1", str(row.get("tip") or "")).strip().strip("，。； ")
+    if not tip:
+        row["tip"] = money
+    elif PEOPLE_WITH_NUM_RE.search(tip):
+        row["tip"] = tip
+    else:
+        row["tip"] = PEOPLE_LABEL_RE.sub(money, tip, count=1)
 
 
 def ledger_lookup(name: str, pois: dict) -> tuple[dict | None, bool]:
@@ -1958,6 +1974,13 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
              f"（上限 {LEG_TOPUP_CAP}，跨城腿不补）")
         out["plan"] = build_plan_json(needs, question, final, ext, pages, start_date,
                                       llm_calls, total, thinking, quiet)
+        if gap_info:
+            # 补查轮真正发出去的清单要留在产物里：它发的是**初稿**上的名字，
+            # 终稿换了条目就查错对象（实测有一条去查"宁波站 一晚 房价"），
+            # 不留痕就没法回答"这家酒店是没查还是查不到"，只能重跑一遍。
+            out["plan"]["sources"]["gap_asks"] = [
+                {"tool": t, "args": json.dumps(a, ensure_ascii=False)[:160]}
+                for t, a in gap_info["calls"]]
     return out
 
 
