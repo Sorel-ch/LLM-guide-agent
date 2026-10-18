@@ -33,6 +33,7 @@ import asyncio
 import concurrent.futures as cf
 import inspect
 import json
+import math
 import os
 import re
 import sys
@@ -83,6 +84,10 @@ PLAN_CHAR_LIMIT = 1000      # 阶段 C 的字数上限
 WIKI_MAX_PAGES = 8          # 注入上下文的 wiki 页数
 WIKI_MAX_CHARS = 14000      # wiki 块总预算
 POI_SHOW_FIELDS = "business,photos"   # 前端卡片要 rating/opentime/photo
+LODGING_TYPECODE = "100000"           # 高德分类编码：住宿服务
+LODGING_RADIUS_M = 4000               # 住宿周边搜半径：一天走到的范围
+LODGING_KEEP = 5                      # 台账里最多留几条住宿行（按离游览区最近排）
+SUGGEST_STOPS_PER_DAY = 4             # 建议链每天最多几站，再多模型只抄其中一段
 
 # 补查轮里模型爱加引号的数字参数，按工具列出只修类型（不做范围夹取，那是已删的⑦）。
 NUMERIC_ARGS = {"get_amap_poi_search": ("offset", "page", "radius"),
@@ -107,8 +112,10 @@ SYSTEM_PLAN = (
     "2b. 【POI】给的人均是消费水平，不是门票价：景点花费没在数据里明确出现过就写待核实；\n"
     "2c. 类=餐饮服务/住宿服务 的条目可以按【POI】人均写花费并注明\"人均参考\""
     "（这个数字是从数据里取到的，别再补一句\"未实测\"）；"
-    "多日题在每个要过夜的晚上末尾要有住宿条目（最后一天返程就不排），name 照抄【POI】里的酒店名；"
-    "同一个景点或餐厅不要在多天里重复出现（住宿除外）；\n"
+    "多日题在每个要过夜的晚上末尾要有住宿条目（最后一天返程就不排），name 照抄【POI】里的酒店名，"
+    "并挑离当天最后一站最近的那家；同一个景点或餐厅不要重复出现（住宿除外）；\n"
+    "2d. 有【建议顺序】就照它给的先后排：那是按坐标聚类算出来的，每天只走属于那一天那一段，"
+    "不许把后面某天的点抓到当天再折回去；确有理由偏离就在该行末写一句为什么；\n"
     f"3. 总长不超过 {PLAN_CHAR_LIMIT} 字：每段一行可以短，但题目要求的内容类别（景点、餐饮、住宿、往返）"
     "都要各自出现。\n"
 )
@@ -147,7 +154,11 @@ SYSTEM_PLAN_JSON = (
     "2b. 多日题在**每个要过夜的晚上**末尾放一条 type=hotel 的住宿（连续几天写同一家可以），"
     "最后一天要返程就不排住宿；"
     "住宿与餐饮的 name 要取【POI】里 类=住宿服务/餐饮服务 的那条（坐标与人均按这个名字回查），"
-    "不要写知识库里顺带提到的连锁名；除此之外同一个 name 不要在多天里重复出现；\n"
+    "住宿挑其中离当天最后一站最近的，不要写知识库里顺带提到的连锁名；"
+    "同一个 name 在整个方案里不要重复出现（住宿除外）；\n"
+    "2d. 有【建议顺序】就照它给的先后排：那是按坐标聚类算出来的，"
+    "每天只走属于那一天那一段，不许把后面某天的点抓到当天再折回去；"
+    "确有理由偏离（开放时间、预约、用餐时段）就在该条 tip 里写一句为什么；\n"
     "3. 交通段 name 写 '甲→乙'，transport 写方式与耗时；没有任何实测数据时 transport 写\"交通待核实\"；\n"
     "4. cost 只填有依据的数字（单位元）：【POI】【路段】或【网页摘要】里给过的才填，免费填 0，"
     "查不到就填 null，不许估算；【POI】里的人均是消费水平不是门票价，"
@@ -586,6 +597,16 @@ def gather_external(needs: dict, wiki_text: str, max_external: int, quiet: bool,
     wave2: list[tuple[str, dict]] = []
     if adcode:
         wave2.append(("get_amap_weather", {"city": adcode, "extensions": "all"}))
+    # 住宿按半径周边搜：`{city}酒店` 是全城检索，宁波连着两次捞回 30 km 外的宾馆，
+    # 于是"当天末站→住宿"这条腿的直线距离就成了 30 km，地图视野也被拽走。
+    # 周边搜给的是真走得到的那几家；关键词那次照旧留着，周边搜空了就还有条目可抄。
+    if (_num(needs.get("days")) or 1) >= 2 and pois:
+        center = lodging_center(pois, tour_stops(needs, pois, adcode))
+        if center:
+            wave2.append(("get_amap_poi_search",
+                          {"types": LODGING_TYPECODE, "location": center,
+                           "radius": LODGING_RADIUS_M, "offset": 4,
+                           "show_fields": POI_SHOW_FIELDS}))
     # ③删了管线内部的配额，但 web 入口传的 max_external 得真的兜住总量：
     # 绍兴一日游实测，只截 POI 的话路段会铺到 15 条，23+7=30 次把软上限穿过去。
     leg_budget = max(0, max_external - len(wave1) - len(wave2)) if max_external and max_external > 0 else 0
@@ -599,6 +620,8 @@ def gather_external(needs: dict, wiki_text: str, max_external: int, quiet: bool,
                        "city2": b.get("adcode") or adcode or city}))
 
     wave2_results = run_calls(wave2, quiet)
+    # 周边搜回来的住宿要并进台账，否则模型没有条目可抄，只能编名字。
+    collect_pois(wave2_results, pois, city)
 
     return {
         "pois": pois,
@@ -881,22 +904,8 @@ def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
     sights = [n for n in pois if in_target(n) and n not in origin_out
               and not is_station_like(n) and not is_lodging_like(n)]
     # 同地点细分要合并（"鲁迅故里-鲁迅故居"相距 72 m、园内"4号别墅"与母点同园区）：
-    # 让它们进链条只会白吃路段配额，真实景点之间反而测不到通勤。
-    # 光靠名称包含不够——成都实测：`成都大熊猫繁育研究基地` 的园点子点名不含母点全称，
-    # 4 条腿里 2 条花在 184 m / 1203 m 的园内挪动上。所以再加一条 400 m 距离判据。
-    def same_place(a: str, b: str) -> bool:
-        """同地点判定：包含关系，或共享 ≥3 字连续片段。
-        3 字是为了躲开"鲁迅故里 / 书圣故里"这种只共享"故里"的真实不同景点，
-        同时抓住"成都大熊猫繁育研究基地 / 成都大熊猫博物馆 / 熊猫书店(成都大熊猫基地店)"
-        这一窝园内子点——补查轮实测它们把 4 条腿吃成了园内散步。"""
-        if a in b or b in a:
-            return True
-        for n in range(min(len(a), len(b)), 2, -1):
-            for i in range(len(a) - n + 1):
-                if a[i:i + n] in b:
-                    return True
-        return False
-
+    # 让它们进链条只会白吃路段配额，真实景点之间反而测不到通勤。判据 same_place 见下面
+    # "建议顺序"一节——路段链和聚类分天要合的是同一批点，不能各留一套标准。
     must = needs.get("must_visit") or []
 
     def hit_must(n: str) -> bool:
@@ -968,6 +977,234 @@ def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
 
 
 # --------------------------------------------------------------------------
+# 建议顺序（A）：直线距离聚类分天 + 天内开放路径
+# --------------------------------------------------------------------------
+# 终稿的先后过去完全由模型自由写，pick_legs 那条最近邻链只决定"发哪几条 direction 请求"，
+# 两者对不上，于是出现相邻两点 30 km、下午在城东晚上折回城西（宁波实测）。
+# 距离一律用球面直线：FloatTrip 把真实路网做成可选变体后盲评质量不达标又回退了默认值，
+# 说明"顺序排错"的瓶颈不在距离精度，而直线距离是 0 次外部调用、同输入必同输出。
+
+EARTH_R_KM = 6371.0088
+BALANCE_MAX_KM = 10.0     # 分天平衡时允许挪动的最远距离，超过就当离群点不挪
+SAME_PLACE_MAX_KM = 0.4   # 相距小于这个数的台账条目算同一个地点
+POI_JUNK_RE = re.compile(
+    r"[(（][^()（）]{0,8}(建设中|在建|进站|出站|检票|售票|停车|进出口|入口|出口|装修)"
+    r"|站(北|南|东|西)?广场")
+LODGING_NAME_RE = re.compile(r"酒店|宾馆|旅馆|民宿|客栈|招待所|青年旅舍")
+
+
+def km_between(a: dict, b: dict) -> float:
+    lat1, lat2 = math.radians(float(a["lat"])), math.radians(float(b["lat"]))
+    dlat = lat2 - lat1
+    dlon = math.radians(float(b["lon"]) - float(a["lon"]))
+    h = (math.sin(dlat / 2) ** 2
+         + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2)
+    return 2 * EARTH_R_KM * math.asin(math.sqrt(h))
+
+
+def path_km(seq: list[str], pois: dict) -> float:
+    return sum(km_between(pois[x], pois[y]) for x, y in zip(seq, seq[1:]))
+
+
+def is_transit_stop(name: str, poi: dict) -> bool:
+    tc = str(poi.get("typecode") or "")
+    return (tc[:2] == "15" or name.endswith("站") or "火车站" in name or "地铁站" in name
+            or "汽车站" in name or "客运中心" in name or bool(POI_JUNK_RE.search(name)))
+
+
+def is_lodging_or_meal(name: str, poi: dict) -> bool:
+    tc = str(poi.get("typecode") or "")
+    return tc[:2] in ("10", "05") or bool(LODGING_NAME_RE.search(name))
+
+
+def _centroid(members: list[str], pois: dict) -> dict:
+    return {"lon": sum(float(pois[n]["lon"]) for n in members) / len(members),
+            "lat": sum(float(pois[n]["lat"]) for n in members) / len(members)}
+
+
+def same_place(a: str, b: str) -> bool:
+    """同地点判定：包含关系，或共享 ≥3 字连续片段。
+    3 字是为了躲开"鲁迅故里 / 书圣故里"这种只共享"故里"的真实不同景点，
+    同时抓住"成都大熊猫繁育研究基地 / 成都大熊猫博物馆 / 熊猫书店(成都大熊猫基地店)"
+    这一窝园内子点。pick_legs 的路段链和分天聚类合的是同一批点，所以判据放在一处。"""
+    if a in b or b in a:
+        return True
+    for n in range(min(len(a), len(b)), 2, -1):
+        for i in range(len(a) - n + 1):
+            if a[i:i + n] in b:
+                return True
+    return False
+
+
+def merge_same_place(names: list[str], pois: dict) -> list[str]:
+    """同一个地点只留一个代表（先按评分高、再按名字短）。
+    不合并会整批带偏聚类：宁波实测一次 `宁波景点` 就带回"南塘老街"的 A 区/B 区/2 期/牌楼/
+    水上游码头，【建议顺序】的 day1 被排成"蒋氏故居售票处 → 蒋氏故居游客中心 → 景区导览图"。
+    光靠名称包含不够（园点子点常不含母点全称，成都实测），再补一条 400 m 距离判据。"""
+    def rank(n: str) -> tuple:
+        return (-(_num(pois[n].get("rating")) or 0.0), len(n))
+
+    reps: list[str] = []
+    for n in sorted(names, key=rank):
+        if any(same_place(n, r) or km_between(pois[n], pois[r]) <= SAME_PLACE_MAX_KM
+               for r in reps):
+            continue
+        reps.append(n)
+    return reps
+
+
+def cluster_by_days(names: list[str], pois: dict, k: int) -> list[list[str]]:
+    """确定性 k-means（k=天数）：按经度等距取种子，迭代到不再变动，上限 12 轮。
+    分天这件事交给代码，同一片区的点才会真的落在同一天。
+    最后再平衡一次：k-means 只管"就近"，不管条数——宁波 6 个点试跑分成 4+1，
+    而"第二天只排得下一个点"正是用户在抱怨的那件事。把最靠近别组的点挪过去，
+    直到组间条数差不超过 1。"""
+    if not names:
+        return []
+    if k <= 1 or len(names) <= k:
+        return [list(names)]
+    srt = sorted(names, key=lambda n: float(pois[n]["lon"]))
+    centroids = [_centroid([srt[round(i * (len(srt) - 1) / (k - 1))]], pois) for i in range(k)]
+    groups: list[list[str]] = []
+    for _ in range(12):
+        groups = [[] for _ in range(k)]
+        for n in srt:
+            j = min(range(k), key=lambda i: km_between(pois[n], centroids[i]))
+            groups[j].append(n)
+        moved = False
+        for i, g in enumerate(groups):
+            if not g:
+                continue
+            c = _centroid(g, pois)
+            moved = moved or abs(c["lon"] - centroids[i]["lon"]) > 1e-6
+            centroids[i] = c
+        if not moved:
+            break
+    groups = [g for g in groups if g]
+    for _ in range(len(names)):
+        big = max(groups, key=len)
+        small = min(groups, key=len)
+        if len(big) - len(small) <= 1:
+            break
+        c = _centroid(small, pois)
+        mover = min(big, key=lambda n: km_between(pois[n], c))
+        # 离群点不为了凑条数硬挪：溪口离市区 30 km，挪进哪一组都是当天白跑几十公里，
+        # 宁可让那一天薄一点——"相邻两点过远"比"某天只有一个点"更伤方案质量。
+        if km_between(pois[mover], c) > BALANCE_MAX_KM:
+            break
+        big.remove(mover)
+        small.append(mover)
+    return sorted(groups, key=lambda g: _centroid(g, pois)["lon"])
+
+
+def open_path(names: list[str], pois: dict, start: str | None = None) -> list[str]:
+    """开放路径（终点不折回起点）：最近邻构造 + 2-opt 反转段消交叉。
+    start 给了就当第一站（day1 从落脚点起步），没给就逐个试起点取最短——
+    只按经度硬选首点会把南北向的点集钉成一条来回的线
+    （宁波实测 5 个点：首点选南塘老街 11.3 km，选宁波博物院 8.2 km）。
+    点数就是台账里本市景点那十来个，每次全量重算总长，不用局部增量。"""
+    if not names:
+        return []
+    seeds = [start] if (start and start in names) else list(names)
+    best: list[str] | None = None
+    best_len = math.inf
+    for s in seeds:
+        rest = [n for n in names if n != s]
+        seq = [s]
+        while rest:
+            nxt = min(rest, key=lambda n: km_between(pois[seq[-1]], pois[n]))
+            rest.remove(nxt)
+            seq.append(nxt)
+        length = path_km(seq, pois)
+        improved = True
+        while improved and len(seq) > 3:
+            improved = False
+            for i in range(1, len(seq) - 1):
+                for j in range(i + 1, len(seq)):
+                    cand = seq[:i] + seq[i:j + 1][::-1] + seq[j + 1:]
+                    d = path_km(cand, pois)
+                    if d < length - 1e-9:
+                        seq, length, improved = cand, d, True
+        if length < best_len:
+            best, best_len = seq, length
+    return best or []
+
+
+def arrival_hub(needs: dict, pois: dict, prefix: str) -> str | None:
+    """day1 的落脚点：本市的火车站/汽车站，`{市}[东南西北]?站` 优先，地铁与进出站口不要。"""
+    city = needs.get("destination_city") or ""
+    cands = [n for n, p in pois.items()
+             if is_transit_stop(n, p) and not POI_JUNK_RE.search(n) and "地铁站" not in n
+             and (not prefix or str(p.get("adcode") or "")[:4] == prefix)]
+    if not cands:
+        return None
+    pref = [h for h in cands if city and re.fullmatch(re.escape(city) + r"(高铁)?[东南西北]?站", h)]
+    return (pref or cands)[0]
+
+
+def tour_stops(needs: dict, pois: dict, adcode: str | None) -> list[str]:
+    """本市、非车站非住宿非餐饮、同地点已合并的台账条目——能排进游览链的那一批。"""
+    prefix = (adcode or "")[:4]
+    names = [n for n, p in pois.items()
+             if (not prefix or str(p.get("adcode") or "")[:4] == prefix)
+             and not POI_JUNK_RE.search(n)
+             and not is_transit_stop(n, p) and not is_lodging_or_meal(n, p)]
+    return merge_same_place(names, pois)
+
+
+def lodging_center(pois: dict, names: list[str]) -> str | None:
+    """住宿周边搜的检索中心：取"到其它景点总距离最短"的那个真实坐标（medoid）。
+    几何中心会被 30 km 外的溪口一把拽走，medoid 不随离群点漂。"""
+    if not names:
+        return None
+    return pois[min(names, key=lambda a: sum(km_between(pois[a], pois[b])
+                                             for b in names if b != a))]["coord"]
+
+
+def suggest_order(needs: dict, pois: dict, adcode: str | None, hints: str = "") -> dict:
+    """本市景点分到天、每天给一条不走回头路的开放路径。
+    车站/餐饮/住宿不进链：前者是锚点，后两者按"离哪一站最近"来挑，排进几何链会把顺序带歪。
+    只有一个点、又离其它组 >BALANCE_MAX_KM 的（溪口那种）不当成一天：
+    硬凑条数会让当天白跑几十公里，单独占一天又排成"一个点的半天"——
+    它另列成 outliers，交回模型判断要不要专门跑一趟。
+    候选按每天 SUGGEST_STOPS_PER_DAY 站截断（必去点 → wiki 点名 → 高德评分），
+    不截的话一次 `{city}景点` 带回的"儿童公园/文化广场/生态走廊"会把建议链铺到 23 km，
+    模型只肯抄走其中一段，剩下的行数是白占 prompt。"""
+    prefix = (adcode or "")[:4]
+    stops = tour_stops(needs, pois, adcode)
+    if len(stops) < 2:
+        return {"days": [], "outliers": []}
+    days = max(1, min(7, int(_num(needs.get("days")) or 1)))
+    cap = SUGGEST_STOPS_PER_DAY * days
+    if len(stops) > cap:
+        must = needs.get("must_visit") or []
+
+        def rank(n: str) -> tuple:
+            return (not any(m and (m in n or n in m) for m in must),
+                    not (len(n) >= 4 and n in hints),
+                    -(_num(pois[n].get("rating")) or 0.0))
+
+        stops = sorted(stops, key=rank)[:cap]
+    # 离群点先摘掉再聚类：溪口跟市区的点相距 28 km，留在聚类里它会自成一组，
+    # 平衡那一步又因为"超过 10 km 不挪"而不动它，于是 7+1 的分组把剩下 7 个点全塞进一天。
+    lone = [n for n in stops
+            if all(km_between(pois[n], pois[m]) > BALANCE_MAX_KM for m in stops if m != n)]
+    stops = [n for n in stops if n not in lone]
+    if len(stops) < 2:
+        return {"days": [], "outliers": lone}
+    hub = arrival_hub(needs, pois, prefix)
+    groups = cluster_by_days(stops, pois, days)
+    out = []
+    for i, g in enumerate(groups, 1):
+        seed = None
+        if i == 1 and hub:
+            seed = min(g, key=lambda n: km_between(pois[n], pois[hub]))
+        seq = open_path(g, pois, seed)
+        out.append({"day": i, "names": seq, "km": round(path_km(seq, pois), 1)})
+    return {"days": out, "outliers": lone}
+
+
+# --------------------------------------------------------------------------
 # 阶段 C
 # --------------------------------------------------------------------------
 
@@ -983,8 +1220,26 @@ def build_context(needs: dict, wiki_text: str, ext: dict, facts: list[str] | Non
         shown: list[tuple[str, dict, str]] = []
         per_q: dict[str, int] = {}
         n_trans = 0
-        for n, p in ext["pois"].items():
+        # 住宿行只留"离游览区最近的几家里再卡一个半径"：`{city}酒店` 是全城检索，
+        # 34 行名额又是先到先得的——上一轮实测模型把"宁波望江宾馆"(溪口, 30 km) 排进当晚，
+        # 第二天等于从溪口出发。半径卡死会整批落空（市区一家都没进半径时模型就没住宿可抄了），
+        # 所以落空时退回"只按最近几家"，宁可留远的也不能一条都不给。
+        center = lodging_center(ext["pois"], tour_stops(needs, ext["pois"], ext.get("adcode")))
+        keep_lodging: set[str] = set()
+        if center:
+            clon, clat = center.split(",")
+            here = {"lon": clon, "lat": clat}
+            ranked = sorted(((km_between(p, here), n) for n, p in ext["pois"].items()
+                             if (p.get("type") or "").startswith("住宿服务")))[:LODGING_KEEP]
+            near = {n for d, n in ranked if d <= LODGING_RADIUS_M / 1000.0 * 1.5}
+            keep_lodging = near or {n for _d, n in ranked}
+        for n, p in sorted(ext["pois"].items(),
+                           key=lambda kv: 0 if kv[0] in keep_lodging else 1):
+            # 稳定排序：只把"离游览区最近的那几家住宿"提到前面。它们本来排在台账末尾
+            # （周边搜是第二波才回来的），34 行名额轮不到它，模型就只能看见溪口那几家。
             kind = (p.get("type") or "").split(";")[0] or "未给"
+            if keep_lodging and kind == "住宿服务" and n not in keep_lodging:
+                continue
             if kind == "交通设施服务":
                 if n_trans >= 4:
                     continue
@@ -1002,6 +1257,16 @@ def build_context(needs: dict, wiki_text: str, ext: dict, facts: list[str] | Non
             # 类别直接给出来，模型才知道这条人均能不能当花费：餐饮服务=餐费、住宿服务=住宿费。
             lines.append(f"  {n} | 类={kind} | {p['lon']},{p['lat']} | 人均={price} "
                          f"评分={p.get('rating') or '未给'} | 开放={str(p.get('opentime'))[:70]}")
+    sugg = suggest_order(needs, ext["pois"], ext.get("adcode"), wiki_text)
+    if sugg["days"]:
+        lines.append("【建议顺序】管线按坐标聚类 + 最近邻 + 2-opt 算的（0 次外部调用），"
+                     "非交通条目照它给的先后排：")
+        for s in sugg["days"]:
+            lines.append(f"  day{s['day']}（直线 {s['km']} km）: " + " → ".join(s["names"]))
+        if sugg["outliers"]:
+            lines.append("  离群候选（离其它点 >10 km，专门跑一趟还是跳过你定）: "
+                         + "、".join(sugg["outliers"]))
+        lines.append("  餐饮与住宿不在这条链里：按离当天哪一站最近来挑。")
     for tool_name, args, payload in ext["results"]:
         d = payload.get("data") or {}
         if payload.get("ok") and d.get("lives"):
@@ -1349,6 +1614,37 @@ def call_failures(ext: dict) -> list[dict]:
             for tool, args, payload in ext["results"] if not payload.get("ok")]
 
 
+def route_quality(rows: list[dict]) -> dict:
+    """当天这一串点实走的直线距离，和它到最短开放路径的比值（折返比）。
+    比值 >1.25 就写一句 route_note——它是验收指标，不做否决：FloatTrip 把绕行比
+    只当诊断是有道理的，纯按最短距离排会牺牲用餐与开放时间那几笔账。
+    同地点先合并（相距 ≤200 m）：南塘老街在同一天里既是午餐又是一站，
+    两条 0 km 边会把比值算虚。"""
+    kept: list[dict] = []
+    for r in rows:
+        loc = r.get("location")
+        if not loc:
+            continue
+        p = {"lon": loc.get("lng"), "lat": loc.get("lat")}
+        if any(km_between(p, q) <= 0.2 for q in kept):
+            continue
+        kept.append(p)
+    if len(kept) < 3:
+        return {"route_km": round(sum(km_between(kept[i], kept[i + 1])
+                                      for i in range(len(kept) - 1)), 1),
+                "detour_ratio": None, "stops": len(kept)}
+    idx = {str(i): p for i, p in enumerate(kept)}
+    walked = path_km(list(idx), idx)
+    # 分母取"端点自由的最短开放路径"（open_path 不给 start 时会试遍起点）。
+    # 它仍是启发式下界，不是精确解——折返比只用来当验收指标，不当否决门。
+    best = path_km(open_path(list(idx), idx), idx)
+    ratio = round(walked / best, 2) if best > 0.05 else None
+    note = (f"有折返：实走 {walked:.1f} km，最短可达 {best:.1f} km"
+            if ratio and ratio > 1.25 else None)
+    return {"route_km": round(walked, 1), "detour_ratio": ratio,
+            "route_note": note, "stops": len(kept)}
+
+
 def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: list,
                     date_used: str, llm_calls: int, seconds: float,
                     thinking: str, quiet: bool) -> dict:
@@ -1419,7 +1715,8 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
             normalize_people_tip(row)
             items.append(row)
         date = (datetime.strptime(start, "%Y-%m-%d") + timedelta(days=d["day"] - 1)).strftime("%Y-%m-%d")
-        out_days.append({"day": d["day"], "date": date, "theme": d.get("theme"), "timeline": items})
+        out_days.append({"day": d["day"], "date": date, "theme": d.get("theme"),
+                         "timeline": items, **route_quality(items)})
 
     return {
         "plan_id": plan_id,
@@ -1522,7 +1819,7 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
         calls = plan_wave1(needs, wiki_text, max_external)
         poi_n = sum(1 for t, _ in calls if t == "get_amap_poi_search")
         mark(f"B2 离线预演   将发 {len(calls)} 次外部调用（POI {poi_n} + 秘塔 {len(calls) - poi_n}），"
-             f"之后按坐标再发 1 次天气 + 路段若干；本次一条都没发")
+             f"之后按坐标再发 1 次天气 + 多日题 1 次住宿周边搜 + 路段若干；本次一条都没发")
         return {"needs": needs, "start_date": start_date, "wiki_pages": pages,
                 "wiki_text": wiki_text, "ext": None, "context": "", "draft": "",
                 "final": "", "gap": None, "trace": trace, "llm_calls": llm_calls,
@@ -1774,7 +2071,9 @@ def main() -> int:
                  f"days={plan.get('days_count')} 条目={len(items)} "
                  f"photo/location/path={sum(1 for i in items if i.get('photo'))}/"
                  f"{sum(1 for i in items if i.get('location'))}/"
-                 f"{sum(1 for i in items if i.get('path'))} -> {saved}")
+                 f"{sum(1 for i in items if i.get('path'))}"
+                 " 折返比=" + "/".join(str(d.get("detour_ratio") or "-")
+                                    for d in plan.get("days", [])) + f" -> {saved}")
     print(line)
     return 0
 
