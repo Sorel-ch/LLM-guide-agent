@@ -533,11 +533,10 @@ def plan_wave1(needs: dict, wiki_text: str, max_external: int) -> list[tuple[str
     """第一波取数清单（POI + 秘塔）。天气与路段要等 POI 坐标回来才能拼，所以不在这里。
     单独拆出来是为了 web 的"离线预演"：把清单原样给用户看，一条外部请求都不发。
 
-    排列只是为了 --max-external 截断时先砍谁：必去点 → 车站 → 高铁站 → 出发地
+    排列只是为了 --max-external 截断时先砍谁：必去点 → 车站 → 高铁站
     → wiki 点名的景点 → 住宿 → 主题词 → 餐厅 → 泛景点。
     """
     city = needs["destination_city"]
-    origin = needs.get("origin") or ""
     origin_city = needs.get("origin_city") or ""
 
     need_ticket = bool(needs.get("intercity") or needs.get("need_intercity_ticket")) \
@@ -552,10 +551,9 @@ def plan_wave1(needs: dict, wiki_text: str, max_external: int) -> list[tuple[str
     # 只搜 `{city}站` 拿到的是普速站（成都那次连"成都站(建设中)"都进来了），
     # 高铁到达站基本都叫 `{city}东站/南站/北站`，单独补一次检索。
     calls.append(poi_call(f"{city}高铁站", city, 4))
-    if origin and origin != origin_city:
-        # 出发地按其所在城市检索；origin 只是一个城市名时不查（"杭州"会捞回杭州大厦、
-        # 杭州站(出口)这类无关条目，白吃一个 POI 名额）
-        calls.append(poi_call(origin, origin_city or None, 3))
+    # 出发地**不再检索坐标**：城际段降级成纯信息条（下面那条秘塔查询给车次与票价），
+    # 地图上不含起点；跨城 direction 腿只给得出"地铁1号线>5号线…169 分"这种
+    # 数值真但不能当城际用的方案（⑧的历史：模型照它编过高铁车次）。
     # 多日题要给更多候选点：只取 3 个时第二天往往一个坐标都没有（宁波两日实测）。
     sight_limit = min(7, 3 + 2 * max(0, int(_num(needs.get("days")) or 1) - 1))
     for name in wiki_sights(wiki_text, needs, limit=sight_limit):
@@ -867,16 +865,16 @@ def _run_once(tool_name: str, args: dict):
 
 def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
               hints: str = "") -> list:
-    """主干路段确定性选取：出发地→到达枢纽→最近景点→依次最近→回枢纽。不算两两矩阵。
+    """主干路段确定性选取：到达枢纽→最近景点→依次最近→回枢纽。不算两两矩阵。
 
-    用 adcode 前 4 位区分本市与外地：出发地在外市才需要那条跨城腿；同名的本市分校区
-    （如"杭州电子科技大学绍兴校区"）应当作景点，不能被当成出发地吃掉。
-    ⑧已删：出发地在外市时照常请求"出发地→枢纽"的 transit 腿——原实现彻底禁掉这条，
-    是因为高德会给"地铁 1 号线 > 5 号线 > 轨道交通 1 号线，169 分"这种跨城公共交通方案，
-    数值真但不能当城际用，模型照着它编高铁车次与票价（实测两轮都栽在这条腿上）。
+    用 adcode 前 4 位只在本市范围内铺链：同名的本市分校区（如"杭州电子科技大学绍兴校区"）
+    应当作景点，不能被当成出发地吃掉。
+    ⑧的历史：这条链**不含出发地→枢纽的跨城腿**——高德给这种 OD 只给得出
+    "地铁 1 号线 > 5 号线 > 轨道交通 1 号线，169 分"，数值真但不能当城际用，
+    模型照着它编高铁车次与票价（实测两轮都栽在这条腿上）。
+    2026-10-18 城际段降级为纯信息条（车次/票价走秘塔，地图上不含起点），这条腿彻底不再请求。
     budget<=0 表示不限路段条数（③已删）。
     """
-    origin = needs.get("origin") or ""
     dest_city = needs.get("destination_city") or ""
     prefix = (adcode or "")[:4]
 
@@ -885,9 +883,6 @@ def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
 
     def in_target(name: str) -> bool:
         return not prefix or city_of(name) == prefix
-
-    named = [n for n in pois if origin and origin[:4] in n]
-    origin_out = [n for n in named if prefix and city_of(n) != prefix]
 
     def dist(a, b):
         ax, ay = float(pois[a]["lon"]), float(pois[a]["lat"])
@@ -912,7 +907,7 @@ def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
     def is_lodging_like(n: str) -> bool:
         return str(pois[n].get("typecode") or "").startswith("100") or bool(lodging_name.search(n))
 
-    sights = [n for n in pois if in_target(n) and n not in origin_out
+    sights = [n for n in pois if in_target(n)
               and not is_station_like(n) and not is_lodging_like(n)]
     # 同地点细分要合并（"鲁迅故里-鲁迅故居"相距 72 m、园内"4号别墅"与母点同园区）：
     # 让它们进链条只会白吃路段配额，真实景点之间反而测不到通勤。判据 same_place 见下面
@@ -975,11 +970,6 @@ def pick_legs(needs: dict, pois: dict, budget: int, adcode: str | None = None,
         remaining.remove(nxt)
 
     legs = []
-    # ⑧已删：出发地与枢纽分属两座城市时也照常请求那条 transit 腿。
-    # 原实现禁它是因高德会给"地铁 1 号线 > 5 号线 > 轨道交通 1 号线，169 分"这种
-    # 数值真但不能当城际用的方案，模型照着编高铁车次与票价（实测两轮都栽在这条腿上）。
-    if origin_out and hub != origin_out[0]:
-        legs.append((origin_out[0], hub, "transit"))
     if hub != chain[0]:
         legs.append((hub, chain[0], "walking" if dist(hub, chain[0]) < 2500 else "transit"))
     for a, b in zip(chain, chain[1:]):
@@ -1502,27 +1492,6 @@ def ledger_lookup(name: str, pois: dict) -> tuple[dict | None, bool]:
     return (pois[hits[0]], False) if len(hits) == 1 else (None, False)
 
 
-def origin_point(needs: dict, pois: dict) -> dict | None:
-    """出发地在台账里的那一个点，给前端画"起"标记用。
-
-    出发地通常只出现在交通段的名字里（"甲→乙"），而 transit 条目故意不做台账回查
-    （防蹭终点的照片与开放时间），所以方案跑到现在地图上一直没有起点。
-    认法用"哪次检索带回的"而不是名字匹配：`杭电下沙校区` 检索回来的第一条就是
-    `杭州电子科技大学(下沙校区)`，拿名字去 ledger_lookup 反而一条都不含（"杭电"是简称）。
-    """
-    origin = str(needs.get("origin") or "").strip()
-    if not origin or origin == str(needs.get("origin_city") or "").strip():
-        return None
-    name = next((n for n, p in pois.items() if str(p.get("q") or "") == origin), None)
-    if name is None:
-        poi, _ = ledger_lookup(origin, pois)
-        if not poi:
-            return None
-        return {"name": origin, "location": {"lng": float(poi["lon"]), "lat": float(poi["lat"])}}
-    p = pois[name]
-    return {"name": name, "location": {"lng": float(p["lon"]), "lat": float(p["lat"])}}
-
-
 def match_leg(name: str, legs: list[dict], pois: dict | None = None,
               claimed: set | None = None) -> dict | None:
     """交通段回查实测路段。
@@ -1845,7 +1814,6 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                     "llm_calls": llm_calls + extra_llm, "seconds": round(seconds, 1),
                     "failures": call_failures(ext)},
         "days": out_days,
-        "origin_point": origin_point(needs, ext["pois"]),
         "degraded": False,
     }
 

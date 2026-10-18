@@ -413,7 +413,7 @@ function renderPlan(p) {
 
 /* ------------------------------------------------------------------ 地图块（M4） */
 
-const MAP = { AMap: null, map: null, info: null, overlays: [], fitTargets: [], originMarker: null,
+const MAP = { AMap: null, map: null, info: null, overlays: [], fitTargets: [],
   markerByIdx: {}, lineByIdx: {}, tried: false, ok: false };
 const FIT_MAX_KM = 20;   // 离质心超过这个距离的站点不参与初始视野
 let PLAN = null;   // 卡片与 marker 靠条目下标对上
@@ -506,15 +506,12 @@ function overlayPoint(o) {
 
 // 初始视野排除离群点：一份三日方案里 40 km 外的机场会把 zoom 拉到 9.85，
 // 实测市中心与熊猫基地各自 4~5 个点叠在 11 px 内，只剩最上面那个看得见。
-// 起点豁免：它是行程的锚点，跨城题里"从哪出发"本来就是这张图要说的话，
-// 跟那种误匹配来的远点不是一回事。
 function pickFitTargets(overlays) {
   const pts = overlays.map(overlayPoint).filter(Boolean);
   if (pts.length < 3) return { kept: overlays.slice(), dropped: 0 };
   const med = (i) => pts.map((p) => p[i]).slice().sort((a, b) => a - b)[Math.floor(pts.length / 2)];
   const [mlng, mlat] = [med(0), med(1)];
   const kept = overlays.filter((o) => {
-    if (o === MAP.originMarker) return true;
     const p = overlayPoint(o);
     if (!p) return true;
     const dx = (p[0] - mlng) * 111 * Math.cos((mlat * Math.PI) / 180);
@@ -527,7 +524,7 @@ function drawMap(p) {
   if (!MAP.ok) return;
   const AMap = MAP.AMap;
   MAP.map.remove(MAP.overlays);
-  MAP.overlays = []; MAP.fitTargets = []; MAP.originMarker = null;
+  MAP.overlays = []; MAP.fitTargets = [];
   MAP.markerByIdx = {}; MAP.lineByIdx = {};
   let n = 0;
   (p.days || []).forEach((d) => d.timeline.forEach((it) => {
@@ -564,25 +561,10 @@ function drawMap(p) {
       MAP.lineByIdx[idx] = line;
     }
   }));
-  // 起点不是行程条目（它只出现在"甲→乙"这种交通段名字里），单独画一个不占编号的标记。
-  const op = p.origin_point;
-  if (op && op.location) {
-    const pos = [Number(op.location.lng), Number(op.location.lat)];
-    const m = new AMap.Marker({
-      position: pos, content: '<div class="mk origin">起</div>', anchor: "center", zIndex: 31,
-    });
-    m.on("click", () => {
-      MAP.info.setContent(`<div class="iw"><b>${esc(op.name)}</b><span>出发地 · 不在行程条目里</span></div>`);
-      MAP.info.open(MAP.map, pos);
-    });
-    MAP.map.add(m);
-    MAP.overlays.push(m);
-    MAP.originMarker = m;
-  }
   const fit = pickFitTargets(MAP.overlays);
   MAP.fitTargets = fit.kept;
   if (MAP.fitTargets.length) MAP.map.setFitView(MAP.fitTargets, false, [46, 46, 46, 46]);
-  mapNote(`${n} 个 marker${op && op.location ? " ＋起点" : ""} ｜ ${Object.keys(MAP.lineByIdx).length} 条实测折线`
+  mapNote(`${n} 个 marker ｜ ${Object.keys(MAP.lineByIdx).length} 条实测折线`
     + (fit.dropped ? `｜ 视野按 ${FIT_MAX_KM} km 内的站点算，${fit.dropped} 个远点没框进来` : ""));
 }
 
