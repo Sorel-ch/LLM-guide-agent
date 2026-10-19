@@ -33,6 +33,7 @@ import argparse
 import asyncio
 import concurrent.futures as cf
 import inspect
+import itertools
 import json
 import math
 import os
@@ -88,12 +89,21 @@ POI_SHOW_FIELDS = "business,photos"   # 前端卡片要 rating/opentime/photo
 LODGING_TYPECODE = "100000"           # 高德分类编码：住宿服务
 LODGING_RADIUS_M = 4000               # 住宿周边搜半径：一天走到的范围
 LODGING_KEEP = 5                      # 台账里最多留几条住宿行（按离游览区最近排）
-SUGGEST_STOPS_PER_DAY = 4             # 建议链每天最多几站：放宽到 5 实测会把海曙与东部新城
-                                      # 混进同一天（day1 折返比 1.0 → 1.58），这条不能松
+# 建议链每天景点条数的上下限（不含餐饮/住宿/交通段），条数按天数分摊：
+# 两天 4~6 站、五天 10~15 站，不为几天题写特例。
+# 上限：放宽到 5 实测会把海曙与东部新城混进同一天（day1 折返比 1.0 → 1.58），这条不能松；
+# 下限：宁波两日实测 day2 只排了博物馆+南塘就返程，模型不会自己把空档填上，
+#       只能由代码保证发给它的每一天本来就有 2~3 站。
+SIGHTS_MIN_PER_DAY = 2
+SIGHTS_MAX_PER_DAY = 3
 # 台账里不渲染这几类：放宽到 44 行后多出来的 11 行全是它们（售票处/公司/商务住宅/地名地址/购物），
 # 既不能当景点也不能当餐宿，白占模型视野。景点/餐/宿/交通四类留着。
 LEDGER_SKIP_KINDS = ("公司企业", "商务住宅", "地名地址信息", "生活服务",
                      "购物服务", "公共设施")
+# 高德把停业状态直接写进名字里（上海实测 `老城隍庙小吃广场(豫园路店)(暂停营业)`）。
+# 这种条目进了台账就会被排进午餐——而且那次还 day1、day3 各排了一次。
+# 在 collect_pois 就拦掉：台账是候选池，池子里不该有关门的店。
+POI_CLOSED_RE = re.compile(r"暂停营业|暂停开放|暂停服务|已?歇业|停业|已关闭|关闭中|停止营业|搬迁|拆迁")
 
 # 补查轮里模型爱加引号的数字参数，按工具列出只修类型（不做范围夹取，那是已删的⑦）。
 NUMERIC_ARGS = {"get_amap_poi_search": ("offset", "page", "radius"),
@@ -122,6 +132,8 @@ SYSTEM_PLAN = (
     "并挑离当天最后一站最近的那家；同一个景点或餐厅不要重复出现（住宿除外）；\n"
     "2d. 有【建议顺序】就照它给的先后排：那是按坐标聚类算出来的，每天只走属于那一天那一段，"
     "不许把后面某天的点抓到当天再折回去；确有理由偏离就在该行末写一句为什么；\n"
+    "2e. 每天 2~3 个景点（餐饮、住宿、往返段不计入）：建议给少了就从【POI】本市条目补、给多了砍掉；"
+    "最后一天哪怕要返程也排到发车前，不许留半天空档；\n"
     f"3. 总长不超过 {PLAN_CHAR_LIMIT} 字：每段一行可以短，但题目要求的内容类别（景点、餐饮、住宿、往返）"
     "都要各自出现。\n"
 )
@@ -165,6 +177,9 @@ SYSTEM_PLAN_JSON = (
     "2d. 有【建议顺序】就照它给的先后排：那是按坐标聚类算出来的，"
     "每天只走属于那一天那一段，不许把后面某天的点抓到当天再折回去；"
     "确有理由偏离（开放时间、预约、用餐时段）就在该条 tip 里写一句为什么；\n"
+    "2e. 每天的 type=attraction 要占满 2~3 条（餐饮、住宿、交通段不计入）：【建议顺序】给少了"
+    "就从【POI】里 类=风景名胜/科教文化 的条目补齐，最后一天哪怕要返程也排到发车前，"
+    "不许留半天空档；\n"
     "3. 交通段 name 写 '甲→乙'，transport 写方式与耗时；没有任何实测数据时 transport 写\"交通待核实\"；\n"
     "4. cost 只填有依据的数字（单位元）：【POI】【路段】或【网页摘要】里给过的才填，免费填 0，"
     "查不到就填 null，不许估算；【POI】里的人均是消费水平不是门票价，"
@@ -479,6 +494,8 @@ def collect_pois(results: list, pois: dict[str, dict], city: str) -> str | None:
             continue
         for p in (payload.get("data") or {}).get("pois") or []:
             if not p.get("location"):
+                continue
+            if POI_CLOSED_RE.search(str(p.get("name") or "")):
                 continue
             lon, lat = p["location"].split(",")
             if args.get("city") == city and p.get("adcode"):
@@ -1068,18 +1085,38 @@ def merge_same_place(names: list[str], pois: dict) -> list[str]:
     return reps
 
 
+def _kmeans_seeds(srt: list[str], pois: dict, k: int) -> list[str]:
+    """确定性 k-means++ 播种：首点取经度最西的，之后每颗种子取"到已选种子最远"的那个点。
+    旧的"按经度等距取点"只会沿东西切：成都实测 9 个点里老城 5 个、南部新区 4 个，
+    等距取种子时三颗全落在老城（经度确实拉开了，纬度差 7 km 它看不见），
+    分完就成了 1+4+4。farthest-point 只认距离，南北向的片区也分得开。"""
+    seeds = [srt[0]]
+    while len(seeds) < k:
+        nxt = max(srt, key=lambda n: (min(km_between(pois[n], pois[s]) for s in seeds), n))
+        seeds.append(nxt)
+    return seeds
+
+
 def cluster_by_days(names: list[str], pois: dict, k: int) -> list[list[str]]:
-    """确定性 k-means（k=天数）：按经度等距取种子，迭代到不再变动，上限 12 轮。
+    """确定性 k-means（k=天数）：farthest-point 播种（`_kmeans_seeds`），迭代到不再变动，上限 12 轮。
     分天这件事交给代码，同一片区的点才会真的落在同一天。
-    最后再平衡一次：k-means 只管"就近"，不管条数——宁波 6 个点试跑分成 4+1，
-    而"第二天只排得下一个点"正是用户在抱怨的那件事。把最靠近别组的点挪过去，
-    直到组间条数差不超过 1。"""
+
+    条数上下限由这一步兜住：候选总数已经被 suggest_order 截进 [lo*天数, hi*天数]，
+    所以"组间条数差不超过 1"一成立，每天就自动落在 2~3 站里（下界 = total//k ≥ lo，
+    上界 = ceil(total/k) ≤ hi）。两个会悄悄破坏这件事的分支：
+    - 点数不够一天一个时旧代码把它们全塞进**一个**组（三天题三个点 → 建议只有 day1），
+      现在改成一个点一天，剩下的天数由 suggest_order 报 thin_days；
+    - 平衡只认"最满那一组里最近的点"，它一超 BALANCE_MAX_KM 就整批放弃，
+      实测留下 4+3+1；现在最空的组先补、donor 挨个试，别的地方搬得动就别让这天空着。
+    """
     if not names:
         return []
-    if k <= 1 or len(names) <= k:
-        return [list(names)]
     srt = sorted(names, key=lambda n: float(pois[n]["lon"]))
-    centroids = [_centroid([srt[round(i * (len(srt) - 1) / (k - 1))]], pois) for i in range(k)]
+    if k <= 1:
+        return [list(names)]
+    if len(srt) <= k:
+        return [[n] for n in srt]
+    centroids = [_centroid([n], pois) for n in _kmeans_seeds(srt, pois, k)]
     groups: list[list[str]] = []
     for _ in range(12):
         groups = [[] for _ in range(k)]
@@ -1096,19 +1133,35 @@ def cluster_by_days(names: list[str], pois: dict, k: int) -> list[list[str]]:
         if not moved:
             break
     groups = [g for g in groups if g]
-    for _ in range(len(names)):
-        big = max(groups, key=len)
-        small = min(groups, key=len)
-        if len(big) - len(small) <= 1:
+    for _ in range(2 * len(names)):
+        lo_n = min(len(g) for g in groups)
+        if max(len(g) for g in groups) - lo_n <= 1:
             break
-        c = _centroid(small, pois)
-        mover = min(big, key=lambda n: km_between(pois[n], c))
-        # 离群点不为了凑条数硬挪：溪口离市区 30 km，挪进哪一组都是当天白跑几十公里，
-        # 宁可让那一天薄一点——"相邻两点过远"比"某天只有一个点"更伤方案质量。
-        if km_between(pois[mover], c) > BALANCE_MAX_KM:
+        moved = False
+        # 最空的组先补，donor 从最满的组开始试：只看"最满那一组里最近的点"时，
+        # 它一超 BALANCE_MAX_KM 就整批放弃平衡，实测留下 4+3+1（那天只剩一个点）。
+        for small in sorted(groups, key=len):
+            c = _centroid(small, pois)
+            for big in sorted(groups, key=len, reverse=True):
+                if len(big) - len(small) < 2:
+                    continue
+                ordered = sorted(big, key=lambda n: km_between(pois[n], c))
+                # 只搬 BALANCE_MAX_KM 以内的：溪口那种 30 km 的点挪进哪一组都是当天白跑几十公里，
+                # "相邻两点过远"比"某天只有一个点"更伤方案质量。
+                # 试过再加一层"搬过去必须比待在原组更近"：8000 组随机题里只改动 0.2% 的分组，
+                # 且那几组反而更长——真正的问题在播种（见 `_kmeans_seeds`），不在这里。
+                mover = next((n for n in ordered
+                              if km_between(pois[n], c) <= BALANCE_MAX_KM), None)
+                if mover is None:
+                    continue
+                big.remove(mover)
+                small.append(mover)
+                moved = True
+                break
+            if moved:
+                break
+        if not moved:
             break
-        big.remove(mover)
-        small.append(mover)
     return sorted(groups, key=lambda g: _centroid(g, pois)["lon"])
 
 
@@ -1177,48 +1230,58 @@ def lodging_center(pois: dict, names: list[str]) -> str | None:
 
 
 def suggest_order(needs: dict, pois: dict, adcode: str | None, hints: str = "") -> dict:
-    """本市景点分到天、每天给一条不走回头路的开放路径。
+    """本市景点分到天、每天给一条不走回头路的开放路径，条数落在 SIGHTS_MIN/MAX_PER_DAY 里。
     车站/餐饮/住宿不进链：前者是锚点，后两者按"离哪一站最近"来挑，排进几何链会把顺序带歪。
     只有一个点、又离其它组 >BALANCE_MAX_KM 的（溪口那种）不当成一天：
     硬凑条数会让当天白跑几十公里，单独占一天又排成"一个点的半天"——
     它另列成 outliers，交回模型判断要不要专门跑一趟。
-    候选按每天 SUGGEST_STOPS_PER_DAY 站截断（必去点 → wiki 点名 → 高德评分），
-    不截的话一次 `{city}景点` 带回的"儿童公园/文化广场/生态走廊"会把建议链铺到 23 km，
-    模型只肯抄走其中一段，剩下的行数是白占 prompt。"""
+    候选先摘离群点、再按 hi*天数截断（必去点 → 这道题点名的检索 → 高德评分），
+    顺序反过来的话离群点会白占一个名额，摘掉之后总数掉到下限以下却没得补。
+    截断或摘除之后不足 lo*天数时按名次把剩下的候选补回来——
+    "每天至少两站"是下限，不能因为一次 `{city}景点` 带回的排名低就整天空掉。
+    补完仍然给不出两站的那些天记进 `thin_days`，由上下文那句话直接告诉模型去补，
+    因为候选本来就是死的（宁波实测 day2 三条全是泛检索的广场，模型自己丢了两个）。"""
     prefix = (adcode or "")[:4]
     stops = tour_stops(needs, pois, adcode)
     if len(stops) < 2:
-        return {"days": [], "outliers": []}
+        return {"days": [], "outliers": [], "spare": [], "thin_days": list(range(1, max(2, int(
+            _num(needs.get("days")) or 1) + 1)))}
     days = max(1, min(7, int(_num(needs.get("days")) or 1)))
-    cap = SUGGEST_STOPS_PER_DAY * days
-    if len(stops) > cap:
-        must = needs.get("must_visit") or []
+    must = needs.get("must_visit") or []
 
-        def rank(n: str) -> tuple:
-            named = not GENERIC_QUERY_RE.search(str(pois[n].get("q") or "")) or (
-                len(n) >= 4 and n in hints)
-            return (not any(m and (m in n or n in m) for m in must),
-                    not named,
-                    -(_num(pois[n].get("rating")) or 0.0))
+    def rank(n: str) -> tuple:
+        named = not GENERIC_QUERY_RE.search(str(pois[n].get("q") or "")) or (
+            len(n) >= 4 and n in hints)
+        return (not any(m and (m in n or n in m) for m in must),
+                not named,
+                -(_num(pois[n].get("rating")) or 0.0))
 
-        stops = sorted(stops, key=rank)[:cap]
-    # 离群点先摘掉再聚类：溪口跟市区的点相距 28 km，留在聚类里它会自成一组，
-    # 平衡那一步又因为"超过 10 km 不挪"而不动它，于是 7+1 的分组把剩下 7 个点全塞进一天。
-    lone = [n for n in stops
-            if all(km_between(pois[n], pois[m]) > BALANCE_MAX_KM for m in stops if m != n)]
-    stops = [n for n in stops if n not in lone]
-    if len(stops) < 2:
-        return {"days": [], "outliers": lone}
+    ranked = sorted(stops, key=rank)
+    lone = [n for n in ranked
+            if all(km_between(pois[n], pois[m]) > BALANCE_MAX_KM for m in ranked if m != n)]
+    keep = [n for n in ranked if n not in lone]
+    pool = keep[:SIGHTS_MAX_PER_DAY * days]
+    if len(pool) < 2:
+        return {"days": [], "outliers": lone, "spare": [], "thin_days": list(range(1, days + 1))}
     hub = arrival_hub(needs, pois, prefix)
-    groups = cluster_by_days(stops, pois, days)
+    groups = cluster_by_days(pool, pois, days)
     out = []
+    extra: list[str] = []
     for i, g in enumerate(groups, 1):
         seed = None
         if i == 1 and hub:
             seed = min(g, key=lambda n: km_between(pois[n], pois[hub]))
         seq = open_path(g, pois, seed)
+        # 上限要落在每一天上：平衡只搬 BALANCE_MAX_KM 以内的点，两片各 7/5 个的台账
+        # （市区 + 溪口那种）搬不动，就会留出一个 7 站的日子。这时按建议链砍到 3 站、
+        # 多出来的另列备选让模型自己换着排，既不超上限也不硬把点拖到对岸。
+        if len(seq) > SIGHTS_MAX_PER_DAY:
+            extra += seq[SIGHTS_MAX_PER_DAY:]
+            seq = seq[:SIGHTS_MAX_PER_DAY]
         out.append({"day": i, "names": seq, "km": round(path_km(seq, pois), 1)})
-    return {"days": out, "outliers": lone}
+    thin = [d["day"] for d in out if len(d["names"]) < SIGHTS_MIN_PER_DAY]
+    thin += list(range(len(out) + 1, days + 1))   # 候选连一天一个都排不满
+    return {"days": out, "outliers": lone, "spare": extra, "thin_days": sorted(set(thin))}
 
 
 # --------------------------------------------------------------------------
@@ -1282,12 +1345,20 @@ def build_context(needs: dict, wiki_text: str, ext: dict, facts: list[str] | Non
     sugg = suggest_order(needs, ext["pois"], ext.get("adcode"), wiki_text)
     if sugg["days"]:
         lines.append("【建议顺序】管线按坐标聚类 + 最近邻 + 2-opt 算的（0 次外部调用），"
-                     "非交通条目照它给的先后排：")
+                     f"非交通条目照它给的先后排，每天 {SIGHTS_MIN_PER_DAY}~{SIGHTS_MAX_PER_DAY} 站都排上：")
         for s in sugg["days"]:
-            lines.append(f"  day{s['day']}（直线 {s['km']} km）: " + " → ".join(s["names"]))
+            lines.append(f"  day{s['day']}（{len(s['names'])} 站，直线 {s['km']} km）: "
+                         + " → ".join(s["names"]))
         if sugg["outliers"]:
             lines.append("  离群候选（离其它点 >10 km，专门跑一趟还是跳过你定）: "
                          + "、".join(sugg["outliers"]))
+        if sugg.get("spare"):
+            lines.append("  当天排不下的备选（同片区，替换掉某天某一站用它）: "
+                         + "、".join(sugg["spare"]))
+        if sugg["thin_days"]:
+            lines.append("  本市台账只够排出这些天，" + "、".join(f"day{d}" for d in sugg["thin_days"])
+                         + f" 不足 {SIGHTS_MIN_PER_DAY} 站：从【POI】里另挑 类=风景名胜/科教文化 的条目补上，"
+                           "别把当天留给一顿午饭。")
         lines.append("  餐饮与住宿不在这条链里：按离当天哪一站最近来挑。")
     for tool_name, args, payload in ext["results"]:
         d = payload.get("data") or {}
@@ -1675,6 +1746,118 @@ def route_quality(rows: list[dict]) -> dict:
             "route_note": note, "stops": len(kept)}
 
 
+def cap_day_sights(groups: list[dict], pois: dict) -> tuple[list[dict], list[tuple[int, str]]]:
+    """终稿成形后把每天的景点数压回 SIGHTS_MAX_PER_DAY（餐饮、住宿、交通段不计）。
+    规则 2e 在 prompt 里写了"每天 2~3 个景点"，上海实测模型仍在 day2 写了 5 个 attraction、
+    当天折返比 1.94——代码给的【建议顺序】本来就 3 站，多出来的是模型自己加的，
+    这条上限得由代码兜，不能只交给模型自觉。
+
+    留哪几个按**当天这一串点的最短开放路径**选（组合数最多 C(9,3)=84，0 次外部调用）：
+    第一版按"在建议链里 → 高德评分"留，实测反而把三天的折返比从 1.63/1.94/1.40 顶到
+    1.89/2.04/1.92——模型多写的那几个往往是同一片区里的近邻，按评分删掉它们，
+    留下的就是散落全城的高分锚点。路径等长时才比评分。
+    解析不出坐标的条目不参与比距离（无从比起），但照样占名额。
+    删掉的景点要把它两侧的交通段缝回相邻的两个留存点，
+    并且这一步必须排在 F 补腿之前：不这么做的话，删条目等于删折线
+    （上海实测同一天在裁之前 4 条线、裁完只剩 2 条）。
+    下限不在这里管：台账里根本没有的景点代码变不出来，只能由【建议顺序】那句提示交给模型。
+    """
+    dropped: list[tuple[int, str]] = []
+    for g in groups:
+        items = g["items"]
+        sights = [it for it in items if (it.get("type") or "attraction") == "attraction"]
+        if len(sights) <= SIGHTS_MAX_PER_DAY:
+            continue
+        named: dict[str, dict] = {}
+        for it in sights:
+            n = str(it.get("name") or "")
+            coord = resolve_ref(n, pois)
+            if not n or n in named or not coord:
+                continue        # 解析不出坐标的条目留在候选里，不参与比距离（下面补回来）
+            lon, lat = coord.split(",")
+            named[n] = {"lon": lon, "lat": lat}
+        unknown = [str(it.get("name") or "") for it in sights
+                   if str(it.get("name") or "") not in named]
+
+        def rating(n: str) -> float:
+            poi, _exact = ledger_lookup(n, pois)
+            return _num((poi or {}).get("rating")) or 0.0
+
+        pool = list(named) + unknown
+        best = None
+        for combo in itertools.combinations(pool, SIGHTS_MAX_PER_DAY):
+            known = [n for n in combo if n in named]
+            # 比的是"这几个点走一遍要多少公里"，所以顺序由 open_path 现算：
+            # 直接按模型写的先后累加会把同一组点算出不同的长度
+            km = path_km(open_path(known, named), named) if len(known) > 1 else 0.0
+            score = (len(combo) - len(known), round(km, 2), -sum(rating(n) for n in combo))
+            if best is None or score < best[0]:
+                best = (score, set(combo))
+        keep = best[1] if best else {str(it.get("name") or "") for it in sights}
+        gone = {str(it.get("name") or "") for it in sights if str(it.get("name") or "") not in keep}
+        dropped += [(g["day"], n) for n in gone]
+
+        def kept(it: dict) -> bool:
+            name = str(it.get("name") or "")
+            if (it.get("type") or "attraction") == "attraction":
+                return name in keep
+            # 交通段：两端之一是被删景点的，这条腿就没有落点，一起删
+            if (it.get("type") or "") == "transit":
+                return not any(same_place(e, n) for e in split_leg_names(it) for n in gone)
+            return True
+
+        # 删掉一个景点等于在它前后各断一条腿，中间就出现"甲 与 丙 相邻却没有腿"的空档。
+        # 这里把相邻两个留下来的地点重新缝上一条 "甲→丙"：新缝的腿此刻还没测过，
+        # 正因为这一步排在 F 补腿之前，它马上会被补上 direction 请求。
+        new_items: list[dict] = []
+        prev: str | None = None
+        leg_after_prev = True
+        for it in items:
+            if (it.get("type") or "") == "transit":
+                if kept(it):
+                    new_items.append(it)
+                    leg_after_prev = True
+                else:
+                    leg_after_prev = False
+                continue
+            name = str(it.get("name") or "")
+            if not kept(it):
+                continue
+            if prev is not None and not leg_after_prev:
+                new_items.append({"type": "transit", "name": f"{prev}→{name}",
+                                  "transport": "", "cost": None, "source": "none"})
+            new_items.append(it)
+            prev, leg_after_prev = name, True
+        g["items"] = new_items
+    return groups, dropped
+
+
+def split_leg_names(it: dict) -> list[str]:
+    """交通段 name 里的"甲→乙"两端；非交通段返回空。"""
+    if (it.get("type") or "") != "transit":
+        return []
+    name = str(it.get("name") or "")
+    return [s.strip() for s in re.split(r"→|->", name) if s.strip()]
+
+
+def day_sights(rows: list[dict]) -> int:
+    """当天真正排了几个景点：餐饮/住宿/交通不计，同一地点只算一个。
+    验收"每天 2~3 站"必须按这个数，不能数条目：宁波实测 day1 六条里天一阁与月湖、
+    老外滩各写了两遍，条数虚胖而真正走到的只有三站。"""
+    kept: list[tuple[str, dict | None]] = []
+    for r in rows:
+        if r.get("type") != "attraction":
+            continue
+        name = str(r.get("name") or "")
+        loc = r.get("location")
+        p = {"lon": loc.get("lng"), "lat": loc.get("lat")} if loc else None
+        if any(same_place(name, k) or (p and kp and km_between(p, kp) <= SAME_PLACE_MAX_KM)
+               for k, kp in kept):
+            continue
+        kept.append((name, p))
+    return len(kept)
+
+
 LEG_TOPUP_CAP = 10        # 终稿补腿的条数上限：direction 是个人 key 日配额 5000 的便宜接口
 
 
@@ -1698,7 +1881,7 @@ def plan_leg_topup(text: str, pois: dict, legs: list[dict], adcode: str | None,
             break
         if (seg.get("type") or "attraction") != "transit":
             continue
-        parts = [p.strip() for p in str(seg.get("name") or "").split("→")]
+        parts = split_leg_names(seg)
         if len(parts) != 2:
             continue
         a, b = resolve_ref(parts[0], pois), resolve_ref(parts[1], pois)
@@ -1717,7 +1900,7 @@ def plan_leg_topup(text: str, pois: dict, legs: list[dict], adcode: str | None,
 
 def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: list,
                     date_used: str, llm_calls: int, seconds: float,
-                    thinking: str, quiet: bool) -> dict:
+                    thinking: str, quiet: bool, pre_trimmed: list | None = None) -> dict:
     plan_id = f"{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}_{needs.get('destination_city') or 'plan'}"
     got = extract_json(text)
     groups = normalize_groups(got)
@@ -1743,6 +1926,11 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
             print(f"    · 分块补轮失败，沿用原分组：{type(exc).__name__}: {exc}", file=sys.stderr)
 
     start = date_used
+    # 每天景点数压回上限。正常路径这步在 run_plan 里、F 补腿之前就做了
+    # （被删景点两侧新缝的腿要赶得上补测），这里再跑一遍是幂等的兜底：
+    # 模型把 N 天全塞进一天时要先等 chunk_days 分完才知道每天几条，还有直接调用本函数的用法。
+    groups, trimmed_local = cap_day_sights(groups, ext["pois"])
+    trimmed = (pre_trimmed or []) + trimmed_local
     origin_token = ((needs.get("origin_city") or needs.get("origin") or "")
                     if needs.get("intercity") else "")[:2]
     out_days = []
@@ -1797,7 +1985,8 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
             items.append(row)
         date = (datetime.strptime(start, "%Y-%m-%d") + timedelta(days=d["day"] - 1)).strftime("%Y-%m-%d")
         out_days.append({"day": d["day"], "date": date, "theme": d.get("theme"),
-                         "timeline": items, **route_quality(items)})
+                         "timeline": items, "sights": day_sights(items),
+                         **route_quality(items)})
 
     return {
         "plan_id": plan_id,
@@ -1812,7 +2001,10 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
         "weather_note": weather_note,
         "sources": {"wiki_pages": pages, "external_calls": ext["external_count"],
                     "llm_calls": llm_calls + extra_llm, "seconds": round(seconds, 1),
-                    "failures": call_failures(ext)},
+                    "failures": call_failures(ext),
+                    # 裁掉的景点要留在产物里：前端与复盘都要能看出"模型写了 5 个、按每天 3 个的上限删了 2 个"，
+                    # 而不是以为方案本来就只有 3 个。
+                    "sight_trim": [{"day": d, "name": n} for d, n in trimmed]},
         "days": out_days,
         "degraded": False,
     }
@@ -1968,6 +2160,17 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
            "gap": gap_info, "trace": trace, "llm_calls": llm_calls,
            "external_calls": ext["external_count"], "seconds": total}
     if json_mode:
+        # 先把每天的景点数压回上限，再补腿：cap 删掉景点时会连它当端点的交通段一起删，
+        # 排在 F 之后的话就把已经测好的腿删掉了（上海实测折线 4 条 → 2 条），
+        # 而新缝上的相邻对也再没机会补测。
+        # build_plan_json 里还有幂等的一遍：模型把 N 天全塞进一天时，要等 chunk_days 分完才裁得准。
+        pre = normalize_groups(extract_json(final))
+        pre_trim: list[tuple[int, str]] = []
+        if pre:
+            pre, pre_trim = cap_day_sights(pre, ext["pois"])
+            if pre_trim:
+                final = json.dumps({"days": pre}, ensure_ascii=False)
+                mark("   裁景点      " + "、".join(f"day{d} 删「{n}」" for d, n in pre_trim))
         # F 补腿：终稿的相邻关系此时才确定，主波那条按台账铺的链盖不住模型自己插进去的
         # 餐宿与次日首站。放在 build_plan_json 之前，折线才回查得到。
         topup = plan_leg_topup(final, ext["pois"], leg_index(ext), ext.get("adcode"),
@@ -1980,7 +2183,7 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
         mark(f"F 补腿         发 {len(topup)} 条 direction"
              f"（上限 {LEG_TOPUP_CAP}，跨城腿不补）")
         out["plan"] = build_plan_json(needs, question, final, ext, pages, start_date,
-                                      llm_calls, total, thinking, quiet)
+                                      llm_calls, total, thinking, quiet, pre_trim)
         if gap_info:
             # 补查轮真正发出去的清单要留在产物里：它发的是**初稿**上的名字，
             # 终稿换了条目就查错对象（实测有一条去查"宁波站 一晚 房价"），
@@ -2170,6 +2373,8 @@ def main() -> int:
                  f"photo/location/path={sum(1 for i in items if i.get('photo'))}/"
                  f"{sum(1 for i in items if i.get('location'))}/"
                  f"{sum(1 for i in items if i.get('path'))}"
+                 " 景点=" + "/".join(str(d.get("sights", "-"))
+                                   for d in plan.get("days", [])) +
                  " 折返比=" + "/".join(str(d.get("detour_ratio") or "-")
                                     for d in plan.get("days", [])) + f" -> {saved}")
     print(line)

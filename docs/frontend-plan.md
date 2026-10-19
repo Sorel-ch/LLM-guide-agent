@@ -169,6 +169,12 @@ v1 只做展示，不做编辑：没有多轮对话、没有登录、没有拖�
      已在源头 `plan_agent.first_photo()` 统一升级，前端不再处理。
    - `/api/plans` 的时间字段叫 `created`，取自 plan_id 里嵌的时间戳（文件 mtime 会被任何一次改写带偏）。
    - 窄屏（≤560px）把缩略图抬到文字上方整宽显示；地图块没有 location/path 时不显示。
+
+   **每天景点条数（2026-10-19）**：`days[].sights` = 当天算得的景点条数（同地点先合并，
+   餐饮/住宿/交通段不计），管线的目标是每天 2~3 个，模型写超了由后端裁并记进
+   `sources.sight_trim`（`[{day, name}]`）。前端 v1 不显示这两个字段，
+   要用就放在每天 theme 右侧（例如"3 个景点"）；`sights` 可能小于时间线里的 attraction 条数，
+   那是同地点被合并了，不是数据丢了。
 3. **地图块**：`webapi.amap.com/loader.js` 官方加载方式（按高德文档自己写），
    打 marker（timeline 的 location）、按 `path` 画实测折线，InfoWindow 显示条目名与时间。
    JS key 从 `/api/config` 动态取，赋给 `window._AMapSecurityConfig`。
