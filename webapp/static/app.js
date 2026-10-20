@@ -8,17 +8,34 @@ const ICON = {
   transit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8h12l1 6v3H5v-3z"/><circle cx="8.5" cy="14" r="1"/><circle cx="15.5" cy="14" r="1"/></svg>',
 };
 const KIND = { attraction: "景点", meal: "餐饮", transit: "交通", hotel: "住宿" };
+const AVA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 14.3 9.7 21 12l-6.7 2.3L12 21l-2.3-6.7L3 12l6.7-2.3z"/></svg>';
+
+function weatherIcon(text) {
+  const t = String(text || "");
+  if (/雨|雷/.test(t)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 15a4 4 0 0 1-.5-8A5.5 5.5 0 0 1 17 6.5 3.8 3.8 0 0 1 17 15z"/><path d="m9 18-1 3M13 18l-1 3M17 18l-1 3"/></svg>';
+  if (/雪/.test(t)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4v16M5 8l14 8M19 8 5 16"/></svg>';
+  if (/云|阴/.test(t)) return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 18a4 4 0 0 1-.6-8A5.5 5.5 0 0 1 17 8.5 3.8 3.8 0 0 1 17.5 18z"/></svg>';
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/></svg>';
+}
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtWhen = (s) => String(s || "").replace("T", " ").slice(0, 16);
 
 const views = { input: $("#view-input"), history: $("#view-history"), plan: $("#view-plan") };
 let lastStages = [];
+let enterTimer = null;
 
 function show(name) {
   Object.entries(views).forEach(([k, el]) => { el.hidden = k !== name; });
   document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
+  const el = views[name];
+  el.classList.remove("is-enter");
+  void el.offsetWidth;                 // 强制回流，切视图时重放入场动效
+  el.classList.add("is-enter");
+  clearTimeout(enterTimer);
+  enterTimer = setTimeout(() => el.classList.remove("is-enter"), 1700);
   window.scrollTo({ top: 0 });
 }
 
@@ -43,7 +60,10 @@ function fail(msg) {
 function setProgress(stages, elapsed) {
   const ol = $("#progress");
   ol.hidden = stages.length === 0;
-  ol.innerHTML = stages.map((s) => `<li>${esc(s)}</li>`).join("");
+  ol.innerHTML = stages.map((s, i) => {
+    const cls = i === stages.length - 1 ? "is-active" : "done";
+    return `<li class="${cls}">${esc(s)}</li>`;
+  }).join("");
   if (elapsed != null) {
     $("#timer").hidden = false;
     $("#timer").textContent = `已用 ${elapsed.toFixed(1)} s`;
@@ -52,25 +72,58 @@ function setProgress(stages, elapsed) {
 
 /* ------------------------------------------------------------- 多轮澄清对话 */
 
-const CHAT = { sid: null, turns: [], ready: false, missing: [], questions: [], needs: null, busy: false };
+const CHAT = { sid: null, turns: [], ready: false, missing: [], questions: [], needs: null, filled: {}, busy: false };
+
+const SLOT_VALUE = {
+  "目的地": (n) => n.destination_city || "已确认",
+  "起点": (n) => n.origin || "本地",
+  "时间": (n, s) => (n.days ? `${n.days} 天` : (s === "waived" ? "不限" : "已确认")),
+  "预算": (n, s) => (n.budget_yuan != null && n.budget_yuan !== ""
+    ? `¥${Number(n.budget_yuan).toLocaleString("zh-CN")}` : (s === "waived" ? "不限" : "已确认")),
+  "偏好": (n, s) => {
+    const v = [].concat(n.themes || [], n.must_visit || []).filter(Boolean);
+    return v.length ? v.join("、") : (s === "waived" ? "都行" : "已确认");
+  },
+};
+
+function updateSlots() {
+  const filled = CHAT.filled || {};
+  const needs = CHAT.needs || {};
+  document.querySelectorAll("#slots .slot").forEach((el) => {
+    const slot = el.dataset.slot;
+    const state = String(filled[slot] || "unknown").toLowerCase();
+    const known = state === "stated" || state === "waived";
+    el.classList.toggle("is-set", known);
+    el.classList.toggle("is-waived", state === "waived");
+    const val = known ? (SLOT_VALUE[slot] || (() => "已确认"))(needs, state) : "待确认";
+    el.querySelector("b").textContent = val;
+    el.title = `${slot}：${val}`;
+  });
+}
 
 function addBubble(who, html) {
-  const el = document.createElement("div");
-  el.className = `bub ${who}`;
-  el.innerHTML = html;
+  const row = document.createElement("div");
+  row.className = `msg ${who}`;
+  row.innerHTML = `${who === "agent" ? `<span class="ava" aria-hidden="true">${AVA}</span>` : ""}`
+    + `<div class="bub ${who}">${html}</div>`;
   const log = $("#chat-log");
-  log.appendChild(el);
+  log.appendChild(row);
   log.scrollTop = log.scrollHeight;
-  return el;
+  return row;
 }
 
 function replyHtml(r) {
   if (r.ready) {
     const n = r.needs || {};
-    const bits = [`起点 ${n.origin || "本地"}`, `目的地 ${n.destination_city}`,
-      `时间 ${n.days || 1} 天`, `预算 ${n.budget_yuan ? `${n.budget_yuan} 元` : "不限"}`,
-      `偏好 ${(n.themes || []).concat(n.must_visit || []).join("、") || "都行"}`];
-    return `<p>信息齐了，可以开始了。</p><p class="meta">${esc(bits.join(" ｜ "))}</p>`;
+    const bits = [
+      n.destination_city ? `目的地 ${n.destination_city}` : "",
+      n.origin ? `起点 ${n.origin}` : "起点 本地",
+      `时间 ${n.days || 1} 天`,
+      `预算 ${n.budget_yuan ? `${Number(n.budget_yuan).toLocaleString("zh-CN")} 元` : "不限"}`,
+      `偏好 ${(n.themes || []).concat(n.must_visit || []).join("、") || "都行"}`,
+    ].filter(Boolean);
+    return `<p>信息齐了，可以开始了。</p>
+      <div class="brief-chips">${bits.map((b) => `<span class="brief-chip">${esc(b)}</span>`).join("")}</div>`;
   }
   const qs = (r.questions || []).map((q) => `
     <p class="q"><b>${esc(q.slot)}</b> ${esc(q.text)}</p>
@@ -98,7 +151,7 @@ async function sendChat(text, { echo = true } = {}) {
   CHAT.busy = true;
   $("#error").hidden = true;
   if (echo) addBubble("me", esc(msg));
-  const typing = addBubble("agent", "想一下…");
+  const typing = addBubble("agent", '<span class="typing" role="status" aria-label="正在思考"><i></i><i></i><i></i></span>');
   setSubmitState();
   try {
     const r = await api("/api/chat", {
@@ -107,6 +160,7 @@ async function sendChat(text, { echo = true } = {}) {
     });
     CHAT.sid = r.sid; CHAT.turns = r.turns || []; CHAT.ready = !!r.ready;
     CHAT.missing = r.missing || []; CHAT.questions = r.questions || []; CHAT.needs = r.needs || null;
+    CHAT.filled = r.filled || {};
     localStorage.setItem("chat_sid", r.sid);
     typing.remove();
     bindChips(addBubble("agent", replyHtml(r)));
@@ -117,6 +171,7 @@ async function sendChat(text, { echo = true } = {}) {
   } finally {
     CHAT.busy = false;
     setSubmitState();
+    updateSlots();
   }
 }
 
@@ -134,10 +189,12 @@ async function startPlan() {
   if (!CHAT.ready || !CHAT.needs || !CHAT.turns.length || CHAT.busy) return;
   const offline = $("#offline").checked;
   const btn = $("#submit");
+  const btnLabel = btn.querySelector("span");
   $("#error").hidden = true;
   $("#manifest").hidden = true;
   btn.disabled = true;
-  btn.textContent = offline ? "预演中…" : "规划中…";
+  btnLabel.textContent = offline ? "预演中…" : "规划中…";
+  btn.classList.add("is-busy");
   lastStages = ["已提交，等待任务开始…"];
   setProgress(lastStages, 0);
 
@@ -172,7 +229,8 @@ async function startPlan() {
     fail(err.message);
   } finally {
     clearInterval(tick); clearInterval(poll);
-    btn.textContent = "开始规划";
+    btnLabel.textContent = "开始规划";
+    btn.classList.remove("is-busy");
     setSubmitState();
     $("#timer").hidden = true;
     lastStages = [];
@@ -196,11 +254,12 @@ $("#chat-input").addEventListener("keydown", (e) => {
 $("#submit").addEventListener("click", startPlan);
 $("#date").addEventListener("change", reask);
 $("#chat-reset").addEventListener("click", () => {
-  Object.assign(CHAT, { sid: null, turns: [], ready: false, missing: [], questions: [], needs: null });
+  Object.assign(CHAT, { sid: null, turns: [], ready: false, missing: [], questions: [], needs: null, filled: {} });
   localStorage.removeItem("chat_sid");
   $("#chat-log").innerHTML = "";
   greet();
   setSubmitState();
+  updateSlots();
 });
 
 (async function restoreChat() {
@@ -210,15 +269,19 @@ $("#chat-reset").addEventListener("click", () => {
     const r = await api(`/api/chat/${encodeURIComponent(sid)}`);
     CHAT.sid = sid; CHAT.turns = r.turns || []; CHAT.ready = !!r.ready;
     CHAT.missing = r.missing || []; CHAT.questions = r.questions || []; CHAT.needs = r.needs || null;
+    CHAT.filled = r.filled || {};
     if (!CHAT.turns.length) { greet(); return; }
     CHAT.turns.forEach((t) => addBubble("me", esc(t)));
     bindChips(addBubble("agent", replyHtml(r)));
   } catch {
     localStorage.removeItem("chat_sid");
     greet();
+  } finally {
+    updateSlots();
   }
 })();
 setSubmitState();
+updateSlots();
 
 function renderManifest(m) {
   $("#manifest").hidden = false;
@@ -259,7 +322,7 @@ function photoBlock(it) {
     onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'no-photo',textContent:'照片暂时加载不出来'}))">`;
 }
 
-function stopCard(it) {
+function stopCard(it, i = 0) {
   const stay = stayMinutes(it);
   const warn = !it.verified
     ? `<p class="stop-warning">待核实 · ${it.cost == null ? "金额没取到" : "依据为本次现查"}（来源 ${esc(it.source || "none")}）</p>`
@@ -267,7 +330,7 @@ function stopCard(it) {
   const thumb = it.photo
     ? `<img class="thumb" src="${esc(it.photo)}" alt="" loading="lazy"
          onerror="this.remove()">` : "";
-  return `<div class="stop">
+  return `<div class="stop" style="--d:${Math.min(i, 8)}">
     <div class="stop-when"><strong>${esc(it.start_time || "待定")}</strong>
       ${it.end_time ? `<span>${esc(it.end_time)}</span>` : ""}</div>
     <div class="stop-node ${esc(it.type)}" aria-hidden="true">${ICON[it.type] || ICON.attraction}</div>
@@ -284,7 +347,7 @@ function stopCard(it) {
         ${it.tip ? `<p class="stop-summary">${esc(it.tip)}</p>` : ""}
       </div>
       ${warn}
-      <div class="detail" hidden>
+      <div class="detail">
         ${it.photo && it.type !== "transit" ? `<figure>${photoBlock(it)}</figure>`
           : (it.type === "transit" ? "" : `<figure><div class="no-photo">暂无景点照片</div></figure>`)}
         <dl>${detailRows(it)}</dl>
@@ -294,14 +357,14 @@ function stopCard(it) {
   </div>`;
 }
 
-function transferPill(it) {
+function transferPill(it, i = 0) {
   const measured = Boolean(it.path && it.path.length);
   const text = it.transport || it.name || "";
   // transport 里常常已经写着"票5元"，再拼一次 cost 就成了"5元 · 5 元"。
   const dupCost = it.cost != null && /(\d+(?:\.\d+)?)\s*元/.test(text)
     && RegExp(`${Number(it.cost)}\\s*元`).test(text);
   const cost = it.cost == null || dupCost ? "" : ` · <b>${Number(it.cost).toFixed(0)}</b> 元`;
-  return `<div class="stop"><div class="stop-when"><strong>${esc(it.start_time || "待定")}</strong></div>
+  return `<div class="stop" style="--d:${Math.min(i, 8)}"><div class="stop-when"><strong>${esc(it.start_time || "待定")}</strong></div>
     <div class="stop-node transit" aria-hidden="true">${ICON.transit}</div>
     <div class="transfer" data-mk="${it.__i}" title="点击在地图上画出这段实测路线">
       <span class="pill ${measured ? "measured" : ""}">${esc(text)}${cost}</span>
@@ -324,9 +387,12 @@ function renderPlan(p) {
   $("#plan-title").textContent = p.destination
     ? `${p.destination} ${p.days_count || ""} 日`.trim()
     : String(p.question || "方案").slice(0, 40);
+  const range = p.start_date
+    ? `${p.start_date}${p.end_date && p.end_date !== p.start_date ? ` – ${p.end_date}` : ""}`
+    : "日期待定";
   $("#plan-meta").textContent =
-    `${dash(p.start_date)} → ${dash(p.end_date)} ｜ 出发地 ${p.origin || "未给"} ｜ ` +
-    `预算 ${p.budget_yuan ? p.budget_yuan + " 元" : "未给"}`;
+    `${p.origin ? `${p.origin} → ` : ""}${dash(p.destination)} ｜ ${range} ｜ ` +
+    `预算 ${p.budget_yuan ? `${Number(p.budget_yuan).toLocaleString("zh-CN")} 元` : "未给"}`;
   const s = p.sources || {};
   $("#plan-chips").innerHTML = [
     `<span class="chip">外部调用 ${esc(s.external_calls)} 次</span>`,
@@ -344,13 +410,19 @@ function renderPlan(p) {
     const w = wx[d.date];
     return `<section class="day">
       <div class="day-head">
-        <span class="dnum">第 ${esc(d.day)} 天</span>
-        <span class="dsub">${esc(d.date)} · ${stops.length} 个安排</span>
-        <span class="dtheme">${esc(d.theme || "")}</span>
-        ${w ? `<span class="day-wx">${esc(w.day)}/${esc(w.night)} ${esc(w.temp_range)} ｜ 风 ${esc(w.wind)}</span>` : ""}
+        <span class="day-index" aria-hidden="true">${String(d.day || 1).padStart(2, "0")}</span>
+        <div class="day-head-main">
+          <div class="day-title-row">
+            <span class="dnum">第 ${esc(d.day)} 天</span>
+            ${d.theme ? `<span class="dtheme">${esc(d.theme)}</span>` : ""}
+          </div>
+          <span class="dsub">${esc(d.date)} · ${stops.length} 个安排</span>
+        </div>
+        ${w ? `<span class="day-wx">${weatherIcon(w.day)}
+          <span><b>${esc(w.day)}</b> / ${esc(w.night)} · ${esc(w.temp_range)}${w.wind ? ` · 风 ${esc(w.wind)}` : ""}</span></span>` : ""}
       </div>
-      <div class="timeline">${d.timeline.map((it) =>
-        it.type === "transit" ? transferPill(it) : stopCard(it)).join("")}</div>
+      <div class="timeline">${d.timeline.map((it, i) =>
+        it.type === "transit" ? transferPill(it, i) : stopCard(it, i)).join("")}</div>
     </section>`;
   }).join("");
 
@@ -360,10 +432,9 @@ function renderPlan(p) {
 
   document.querySelectorAll("#days [data-toggle]").forEach((card) => {
     const toggle = () => {
-      const det = card.querySelector(".detail");
-      if (!det) return;
-      det.hidden = !det.hidden;
-      card.setAttribute("aria-expanded", String(!det.hidden));
+      if (!card.querySelector(".detail")) return;
+      const open = card.classList.toggle("open");
+      card.setAttribute("aria-expanded", String(open));
     };
     const onActivate = () => {
       toggle();
@@ -388,7 +459,7 @@ function renderPlan(p) {
     <h2>来源与用量</h2>
     <p class="meta">${esc(p.question || "")}</p>
     <h3>知识库命中页（可追溯，带 raw 快照）</h3>
-    <ul>${(s.wiki_pages || []).map((x) => `<li>${esc(x)}</li>`).join("") || "<li>无</li>"}</ul>
+    <ul class="src-chips">${(s.wiki_pages || []).map((x) => `<li>${esc(x)}</li>`).join("") || "<li>无</li>"}</ul>
     <h3>失败的外部调用（不静默吞）</h3>
     <ul class="${fails.length ? "fail" : ""}">${fails.length
       ? fails.map((f) => `<li>${esc(f.tool)} · ${esc(f.error_code)} · ${esc(f.error_msg)}<br><code>${esc(f.args)}</code></li>`).join("")
@@ -459,7 +530,7 @@ async function ensureMap() {
       window.AMapLoader.load({ key: cfg.amap_js_key, version: "2.0", plugins: ["AMap.Scale"] }),
       12000, "高德 SDK");
     MAP.AMap = AMap;
-    MAP.map = new AMap.Map("map-canvas", { viewMode: "2D", zoom: 11 });
+    MAP.map = new AMap.Map("map-canvas", { viewMode: "2D", zoom: 11, mapStyle: "amap://styles/whitesmoke" });
     MAP.map.addControl(new AMap.Scale());
     MAP.info = new AMap.InfoWindow({ offset: new AMap.Pixel(0, -30) });
     MAP.ok = true;
@@ -547,21 +618,34 @@ function drawMap(p) {
       MAP.markerByIdx[idx] = marker;
     }
     if (it.path && it.path.length > 1) {
+      const path = it.path.map((c) => c.slice());
+      // 先铺一条纸色底线再画赤陶色路线，折线在浅色底图上更清楚。
+      const casing = new AMap.Polyline({
+        path,
+        strokeColor: "#fffdf8",
+        strokeWeight: 10,
+        strokeOpacity: 1,
+        lineJoin: "round",
+        zIndex: 20,
+      });
       const line = new AMap.Polyline({
-        path: it.path.map((c) => c.slice()),
-        strokeColor: "#2864A8",
-        strokeWeight: 5,
-        strokeOpacity: .85,
+        path,
+        strokeColor: "#bf5b3b",
+        strokeWeight: 4.5,
+        strokeOpacity: .9,
         lineJoin: "round",
         showDir: true,
         bubble: true,
+        zIndex: 21,
       });
+      MAP.map.add(casing);
       MAP.map.add(line);
-      MAP.overlays.push(line);
+      casing.__casing = true;          // 只用于描边，视野拟合时不重复算一次
+      MAP.overlays.push(casing, line);
       MAP.lineByIdx[idx] = line;
     }
   }));
-  const fit = pickFitTargets(MAP.overlays);
+  const fit = pickFitTargets(MAP.overlays.filter((o) => !o.__casing));
   MAP.fitTargets = fit.kept;
   if (MAP.fitTargets.length) MAP.map.setFitView(MAP.fitTargets, false, [46, 46, 46, 46]);
   mapNote(`${n} 个 marker ｜ ${Object.keys(MAP.lineByIdx).length} 条实测折线`
@@ -592,13 +676,32 @@ async function loadHistory() {
   try {
     const { plans, total } = await api("/api/plans");
     $("#history-meta").textContent = `共 ${total ?? plans.length} 份，列出最近 ${plans.length} 份`;
-    $("#history-list").innerHTML = plans.length ? plans.map((r) => `
-      <li>
-        <a href="#" data-id="${esc(r.plan_id)}">${esc(r.destination || r.plan_id)}${r.days_count ? ` · ${r.days_count} 日` : ""}</a>
-        <p class="meta">${esc(r.start_date || "")} → ${esc(r.end_date || "")} ｜
-          外部 ${esc(r.external_calls)} 次 ｜ ${esc(r.seconds)} s ｜ ${esc(r.created)}
-          ${r.degraded ? " ｜ 结构化降级" : ""}${r.error ? ` ｜ ${esc(r.error)}` : ""}</p>
-      </li>`).join("") : "<li>还没有落盘的方案，先去「新规划」跑一题</li>";
+    $("#history-list").innerHTML = plans.length ? plans.map((r, i) => `
+      <li style="--d:${Math.min(i, 8)}">
+        <a class="hcard" href="#" data-id="${esc(r.plan_id)}">
+          <span class="hc-kicker">TRIP / ${r.days_count ? `${esc(r.days_count)} DAYS` : "PLAN"}</span>
+          <span class="dest">${esc(r.destination || r.plan_id)}</span>
+          <span class="hc-dates">${esc(r.start_date || "日期待定")}${r.end_date ? ` → ${esc(r.end_date)}` : ""}</span>
+          <span class="hc-stats">
+            ${r.external_calls != null ? `<span>外部调用 ${esc(r.external_calls)}</span>` : ""}
+            ${r.seconds != null ? `<span>${esc(r.seconds)} s</span>` : ""}
+            ${r.degraded ? "<span>结构化降级</span>" : ""}
+          </span>
+          <span class="hc-foot">${esc(fmtWhen(r.created))}${r.error ? ` ｜ ${esc(r.error)}` : ""}</span>
+          <span class="hc-arrow" aria-hidden="true">→</span>
+        </a>
+      </li>`).join("") : `
+      <li class="empty-state">
+        <span class="empty-art" aria-hidden="true">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.6">
+            <circle cx="32" cy="32" r="25" stroke-dasharray="3 4"/>
+            <path d="M32 18 35.5 28.5 46 32 35.5 35.5 32 46 28.5 35.5 18 32 28.5 28.5Z"/>
+          </svg>
+        </span>
+        <b>还没有落盘的方案</b>
+        先把第一道题跑出来，方案会留在这里。
+        <div style="margin-top:12px"><button class="ghost" type="button" data-goto="input">去新规划</button></div>
+      </li>`;
     $("#history-list").querySelectorAll("a[data-id]").forEach((a) => {
       a.addEventListener("click", async (e) => {
         e.preventDefault();
@@ -606,6 +709,8 @@ async function loadHistory() {
         catch (err) { fail(err.message); show("input"); }
       });
     });
+    const go = $("#history-list").querySelector("[data-goto]");
+    if (go) go.addEventListener("click", () => show("input"));
   } catch (err) {
     $("#history-meta").textContent = `读不动：${err.message}`;
   }

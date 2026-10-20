@@ -3,19 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>行程规划 · LLM-guide-agent</title>
-<link rel="stylesheet" href="style.css?v=2026-10-19a">
+<title>行程规划 · 有据可查的旅行计划</title>
+<link rel="stylesheet" href="style.css?v=2026-10-19g">
 </head>
 <body>
+<div class="ambient" aria-hidden="true"></div>
+
 <header class="topbar">
   <div class="brand">
-    <span class="mark" aria-hidden="true"></span>
-    <div>
-      <h1>行程规划</h1>
-      <p class="sub">先查 wiki · 再用高德/秘塔补数 · 每条结论标来源</p>
+    <span class="mark" aria-hidden="true">
+      <svg viewBox="0 0 40 40">
+        <circle cx="20" cy="20" r="16.5" fill="none" stroke="currentColor" stroke-opacity=".3"/>
+        <path d="M20 6.5 23.4 16.6 33.5 20 23.4 23.4 20 33.5 16.6 23.4 6.5 20 16.6 16.6Z" fill="currentColor"/>
+        <circle cx="20" cy="20" r="2.6" fill="#fffdf8"/>
+      </svg>
+    </span>
+    <div class="brand-text">
+      <h1>行程规划<span class="brand-en">WAYFARER</span></h1>
+      <p class="sub">知识库 × 高德实测 × 实时天气</p>
     </div>
   </div>
-  <nav class="tabs">
+  <nav class="tabs" aria-label="视图切换">
     <button class="tab active" data-view="input" type="button">新规划</button>
     <button class="tab" data-view="history" type="button">历史</button>
   </nav>
@@ -23,32 +31,150 @@
 
 <main>
   <!-- 视图 1：对话页（信息问齐了才允许开始规划） -->
-  <section id="view-input" class="view">
+  <section id="view-input" class="view view-input">
+    <aside class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow"><i></i>AI TRIP PLANNER</span>
+        <h2>把一座城市，<br><em>排成一条顺路的线</em>。</h2>
+        <p class="lede">说清出发地、天数、预算和偏好。我们先把知识库翻一遍，再用高德与天气补数，每一条结论都标出来源。</p>
+        <ul class="features">
+          <li>
+            <span class="fi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M4 5.5v16M8 7h8M8 11h6"/></svg></span>
+            <span><b>先查知识库</b><em>结论可追溯到 raw 快照</em></span>
+          </li>
+          <li>
+            <span class="fi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 21s-6-5.2-6-10a6 6 0 1 1 12 0c0 4.8-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg></span>
+            <span><b>高德实测</b><em>坐标、车程与路线折线</em></span>
+          </li>
+          <li>
+            <span class="fi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M7 18a4 4 0 0 1-.6-8A5.5 5.5 0 0 1 17 8.5 3.8 3.8 0 0 1 17.5 18z"/><path d="M8 21h1M12 21h1M16 21h1"/></svg></span>
+            <span><b>天气即时</b><em>只对出行当天有效</em></span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="hero-art" aria-hidden="true">
+        <div class="hero-compass">
+          <svg viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="29" fill="none" stroke="currentColor" stroke-opacity=".22"/>
+            <circle cx="32" cy="32" r="22.5" fill="none" stroke="currentColor" stroke-opacity=".14" stroke-dasharray="2 4"/>
+            <text x="32" y="10" text-anchor="middle" font-size="7" letter-spacing="1">N</text>
+            <g class="needle">
+              <path d="M32 14 36.5 34 32 31 27.5 34Z" fill="currentColor"/>
+              <path d="M32 50 27.5 30 32 33 36.5 30Z" fill="currentColor" opacity=".22"/>
+            </g>
+          </svg>
+        </div>
+        <svg class="route-art" viewBox="0 0 520 380" preserveAspectRatio="xMidYMax meet">
+          <defs>
+            <linearGradient id="land" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#fffaf0"/>
+              <stop offset="1" stop-color="#efe4d2"/>
+            </linearGradient>
+            <linearGradient id="routeGrad" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0" stop-color="#c96745"/>
+              <stop offset="1" stop-color="#9c4428"/>
+            </linearGradient>
+          </defs>
+          <rect x="1" y="1" width="518" height="378" rx="30" fill="url(#land)"/>
+          <g class="contours" fill="none" stroke="#9c8f7a" stroke-opacity=".18" stroke-width="1.2">
+            <path d="M-20 296C58 248 92 330 178 296S318 226 458 274 566 236 580 256"/>
+            <path d="M-30 326C52 282 96 354 188 320S348 262 466 306 566 278 590 292"/>
+            <path d="M-10 246C82 206 128 266 218 236S378 178 498 224"/>
+            <path d="M26 354C104 318 136 372 222 348S386 312 512 344"/>
+            <path d="M70 206C126 184 152 214 214 196S334 160 424 184"/>
+          </g>
+          <path d="M-20 240C80 214 130 296 220 264S360 206 540 244" fill="none" stroke="#c6d9d2" stroke-width="30" stroke-linecap="round" opacity=".55"/>
+          <path d="M-20 240C80 214 130 296 220 264S360 206 540 244" fill="none" stroke="#eaf3ef" stroke-width="2" stroke-dasharray="8 12" opacity=".9"/>
+          <g class="crosses" stroke="#8d806b" stroke-opacity=".35" stroke-width="1">
+            <path d="M388 282h10M393 277v10M96 148h8M100 144v8M304 106h8M308 102v8"/>
+          </g>
+          <path id="routePath" d="M82 318C136 282 150 236 216 232S302 260 352 200 406 120 452 84"
+                fill="none" stroke="#fffdf8" stroke-width="11" stroke-linecap="round"/>
+          <path class="route-line" d="M82 318C136 282 150 236 216 232S302 260 352 200 406 120 452 84"
+                fill="none" stroke="url(#routeGrad)" stroke-width="3.2" stroke-linecap="round"
+                stroke-dasharray="1 11"/>
+          <circle class="traveler-halo" r="11" fill="#c96745" opacity=".14">
+            <animateMotion dur="14s" repeatCount="indefinite"><mpath href="#routePath"/></animateMotion>
+          </circle>
+          <circle class="traveler" r="4.2" fill="#fffdf8" stroke="#bf5b3b" stroke-width="2.4">
+            <animateMotion dur="14s" repeatCount="indefinite"><mpath href="#routePath"/></animateMotion>
+          </circle>
+          <g class="pin pin-1" transform="translate(216 232)">
+            <circle r="15" fill="#fffdf8" opacity=".7"/>
+            <circle r="11" fill="#bf5b3b"/>
+            <text y="3.6" text-anchor="middle" font-size="10" font-weight="600" fill="#fffdf8">1</text>
+            <text y="30" text-anchor="middle" font-size="8.5" letter-spacing="1.6" fill="#7d877f">DAY 01</text>
+          </g>
+          <g class="pin pin-2" transform="translate(352 200)">
+            <circle r="15" fill="#fffdf8" opacity=".7"/>
+            <circle r="11" fill="#1f6f5f"/>
+            <text y="3.6" text-anchor="middle" font-size="10" font-weight="600" fill="#fffdf8">2</text>
+            <text y="30" text-anchor="middle" font-size="8.5" letter-spacing="1.6" fill="#7d877f">DAY 02</text>
+          </g>
+          <g class="pin pin-3" transform="translate(452 84)">
+            <circle r="15" fill="#fffdf8" opacity=".7"/>
+            <circle r="11" fill="#b3873f"/>
+            <text y="3.6" text-anchor="middle" font-size="10" font-weight="600" fill="#fffdf8">3</text>
+            <text y="-24" text-anchor="middle" font-size="8.5" letter-spacing="1.6" fill="#7d877f">DAY 03</text>
+          </g>
+          <text x="54" y="344" font-size="9" letter-spacing="2.4" fill="#7d877f">DEPART</text>
+          <path d="M82 318 82 330" stroke="#b6a78f" stroke-width="1.2"/>
+        </svg>
+      </div>
+    </aside>
+
     <div class="panel chat">
       <div class="chat-head">
-        <h2>先说清楚去哪儿</h2>
-        <span class="meta" id="chat-state">起点、目的地、时间、预算、偏好齐了才开始规划</span>
+        <span class="agent-badge" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3 14.3 9.7 21 12l-6.7 2.3L12 21l-2.3-6.7L3 12l6.7-2.3z"/></svg>
+          <i class="online"></i>
+        </span>
+        <div class="chat-title">
+          <h2>行程顾问</h2>
+          <p class="meta" id="chat-state">五项信息齐了才开始规划</p>
+        </div>
         <button class="ghost" id="chat-reset" type="button">新对话</button>
       </div>
-      <div id="chat-log" class="chat-log" role="log" aria-live="polite"></div>
-      <div class="chat-row">
-        <input id="chat-input" type="text" maxlength="600" autocomplete="off"
-          placeholder="例：从杭州出发去成都三日游，预算2000元，想吃川菜、看大熊猫">
-        <button id="chat-send" class="primary" type="button">发送</button>
+
+      <div id="slots" class="slots" aria-label="需求收集进度">
+        <span class="slot" data-slot="目的地"><i></i><span class="slot-k">目的地</span><b>待确认</b></span>
+        <span class="slot" data-slot="起点"><i></i><span class="slot-k">起点</span><b>待确认</b></span>
+        <span class="slot" data-slot="时间"><i></i><span class="slot-k">时间</span><b>待确认</b></span>
+        <span class="slot" data-slot="预算"><i></i><span class="slot-k">预算</span><b>待确认</b></span>
+        <span class="slot" data-slot="偏好"><i></i><span class="slot-k">偏好</span><b>待确认</b></span>
       </div>
-      <div class="row">
+
+      <div id="chat-log" class="chat-log" role="log" aria-live="polite"></div>
+
+      <div class="chat-row">
+        <div class="input-wrap">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+          <input id="chat-input" type="text" maxlength="600" autocomplete="off"
+            placeholder="例：从杭州出发去成都三日游，预算 2000 元，想吃川菜、看大熊猫">
+        </div>
+        <button id="chat-send" class="primary send" type="button" aria-label="发送">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+
+      <div class="brief">
         <div class="field">
           <label class="kicker" for="date">起始日期</label>
           <input id="date" type="date">
-          <p class="hint">留空按明天推算；天气与车次结论只对当天有效</p>
+          <p class="hint">留空按明天推算；天气与车次只对当天有效</p>
         </div>
         <label class="switch" for="offline">
           <input id="offline" type="checkbox">
-          <span class="sw-text"><b>离线预演</b><em>只列调用清单，一条外部请求都不发</em></span>
+          <span class="sw-text"><b>离线预演</b><em>只列调用清单，不发外部请求</em></span>
         </label>
       </div>
+
       <div class="actions">
-        <button id="submit" class="primary" type="button" disabled>开始规划</button>
+        <button id="submit" class="primary cta" type="button" disabled>
+          <span>开始规划</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+        </button>
         <span id="asked" class="meta"></span>
         <span id="timer" class="timer" hidden></span>
       </div>
@@ -56,7 +182,7 @@
       <p id="error" class="error" hidden></p>
     </div>
 
-    <section id="manifest" class="panel" hidden>
+    <section id="manifest" class="panel manifest" hidden>
       <h2>将要发出的外部调用</h2>
       <p class="meta" id="manifest-meta"></p>
       <ul id="manifest-list" class="list"></ul>
@@ -64,25 +190,48 @@
   </section>
 
   <!-- 视图 2：历史页 -->
-  <section id="view-history" class="view" hidden>
-    <div class="panel">
-      <h2>最近方案</h2>
-      <p class="meta" id="history-meta"></p>
-      <ul id="history-list" class="list"></ul>
+  <section id="view-history" class="view view-history" hidden>
+    <div class="panel history-panel">
+      <div class="panel-head">
+        <div>
+          <span class="eyebrow"><i></i>TRIP ARCHIVE</span>
+          <h2>最近方案</h2>
+        </div>
+        <p class="meta" id="history-meta"></p>
+      </div>
+      <ul id="history-list" class="list history-grid"></ul>
     </div>
   </section>
 
   <!-- 视图 3：详情页 -->
-  <section id="view-plan" class="view" hidden>
+  <section id="view-plan" class="view view-plan" hidden>
     <div class="panel cover">
-      <button class="ghost back" type="button">← 返回</button>
-      <h2 id="plan-title"></h2>
-      <p class="meta" id="plan-meta"></p>
+      <div class="cover-top">
+        <button class="ghost back" type="button">← 返回</button>
+        <span class="cover-kicker">ITINERARY / 行程单</span>
+      </div>
+      <div class="cover-main">
+        <div class="cover-title">
+          <h2 id="plan-title"></h2>
+          <p class="meta" id="plan-meta"></p>
+        </div>
+        <div class="cover-stamp" aria-hidden="true">
+          <svg viewBox="0 0 72 72">
+            <circle cx="36" cy="36" r="33" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-dasharray="3 4"/>
+            <circle cx="36" cy="36" r="26" fill="none" stroke="currentColor" stroke-opacity=".2"/>
+            <path d="M36 15 40.5 31.5 57 36 40.5 40.5 36 57 31.5 40.5 15 36 31.5 31.5Z" fill="currentColor" opacity=".85"/>
+          </svg>
+          <span>TRIP<br>PLAN</span>
+        </div>
+      </div>
       <div id="plan-chips" class="chips"></div>
     </div>
 
     <section id="map-block" class="panel map-block" hidden>
       <div class="map-head">
+        <span class="map-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m9 5-6 3v11l6-3 6 3 6-3V5l-6 3z"/><path d="M9 5v11M15 8v11"/></svg>
+        </span>
         <h2>路线地图</h2>
         <span class="meta" id="map-note">加载中…</span>
         <button class="ghost" id="map-toggle" type="button" aria-expanded="true">收起</button>
@@ -103,10 +252,10 @@
 </main>
 
 <footer class="foot">
-  <span>已核实 = 出自 wiki 页或本次高德实测；</span>
-  <span>待核实 = 本次现查或数据没取到，只对当场有效。</span>
+  <span class="legend"><i class="dot v"></i>已核实：出自 wiki 页或本次高德实测</span>
+  <span class="legend"><i class="dot u"></i>待核实：本次现查或没取到，只对当场有效</span>
 </footer>
 
-<script src="app.js?v=2026-10-19a"></script>
+<script src="app.js?v=2026-10-19g"></script>
 </body>
 </html>
