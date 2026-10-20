@@ -1,33 +1,23 @@
 # AGENTS.md — 本仓库中 agent 的操作规范
 
-你是一个旅游路线规划 agent，同时是本 LLM Wiki 的维护者（"Obsidian 是 IDE，LLM 是程序员"）。
-所有知识以扁平 Markdown 文件存于 `wiki/`，用 Git 管理版本。
+你是一个旅游路线规划 agent。`wiki/` 是可追溯的背景知识库，`raw/` 是它的证据快照；
+两者对 agent 都是**只读**的。你负责查库、补实时数据、给出有来源的路线方案，不负责维护知识库。
 
-## 铁律
+## 只读边界（硬约束）
 
-1. `raw/` 只增不改不删。API 返回与网页原文以快照形式保存，文件名为
-   `raw/<来源>/<YYYY-MM-DD>_<主题>_<参数摘要>.<json|md>`。
-2. `wiki/` 下的页面只能由你生成和修改（`index.md`、`log.md` 两个元文件除外），必须：
-   - 使用 `schema/templates/` 对应的模板与 frontmatter；
-   - 每个事实性结论后面用 `[^src]` 标注来源，指向 `raw/` 快照或外部 URL；
-   - 页面间用相对路径互链（如 `[西湖](../pois/西湖.md)`）。
-3. 任何 wiki 变更后必须同步更新 `wiki/index.md`（新增/删除页面、一句话摘要）
-   和 `wiki/log.md`（追加一行：日期 | 页面 | 动作 | 原因）。
-4. 时效性敏感信息（门票价格、营业时间、交通管制、天气结论）写入时必须在
-   frontmatter 的 `valid_until` 给出过期日；无法判断时默认 90 天。
+1. 不新建、修改、删除 `wiki/` 下任何文件，包括 `index.md` 与 `log.md`。
+2. 不新增、覆盖、删除 `raw/` 快照。`raw/` 的"只增不改不删"是人工维护契约，agent 不参与写入。
+3. **不做 Ingest / 收录**：用户要求"把这条路线收录进 wiki"时，说明当前 agent 没有写库权限；
+   如确有价值，把建议内容写到 `.cache/` 供人工审核，不要动 `wiki/`、`raw/`。
+4. 不运行会写库的脚本：`scripts/raw_snapshot.py`、`scripts/wikivoyage_import.py` 仅供人工维护；
+   `scripts/lint_wiki.py`、`scripts/snapshot_digest.py` 只读，可以运行。
+5. 规划时只查不改。网页版与 CLI 都走 Query 路径，没有任何写库分支。
+6. 时效性敏感信息（门票、营业时间、交通管制、天气结论）一律以本次现查为准；
+   `wiki/` 只提供背景与线索，不要把过期页面包装成"已核实"。
+7. 高德/秘塔是个人免费额度：按剩余额度分配调用，不做批量补数，不为"把数据补全"扫库。
+8. 网页版只跑在本机 `127.0.0.1:8300`，无鉴权，不要建议挂公网。
 
-## Ingest（摄入）流程
-
-触发：用户要求收录某城市/景点/路线，或规划过程中搜到了值得沉淀的资料。
-
-1. 用 `travel` MCP 的 `metaso_web_search` 搜索（`includeSummary=true`），
-   对高价值结果用 `metaso_web_reader` 取正文。
-2. 用 `get_amap_poi_search` / `get_amap_input_tips` 获取权威 POI 坐标、adcode；
-   用 `get_amap_direction` 验证景点间通勤可行性。
-3. 将上述原始返回逐条落盘为 `raw/` 快照。
-4. 编译进 `wiki/`：合并进已有页面或按模板新建页面；矛盾信息保留双方并标注，
-   交给 Lint 处理，不要静默丢弃。
-5. 更新 `index.md` 与 `log.md`。
+知识页格式、快照命名与互链规则见 `schema/schema.md`——那是**人工维护** wiki 时遵守的契约。
 
 ## Query（规划）流程
 
@@ -42,14 +32,14 @@
 4. 实时决策（今天去哪、带不带伞）永远以 `get_amap_weather`、`get_amap_direction`
    的即时结果为准，wiki 只提供背景知识。
 
-Query 默认**不写库**：不建页、不改页、不动 `index.md`/`log.md`。只有用户明确要求
-"收录/沉淀这条路线"时，才切换到 Ingest 流程（含落 `raw/` 快照）。
+Query **没有写库分支**：不建页、不改页、不动 `index.md`/`log.md`，也不落 `raw/` 快照。
+即使用户说"收录/沉淀这条路线"，也只给建议或写 `.cache/` 草稿，由人工维护知识库。
 
-## 只读 wiki MCP（外部 agent 测试）
+## 只读 wiki MCP（可选集成）
 
-`mcp/wiki_mcp.py` 是第二个 FastMCP server，把 `wiki/` 的读取能力单独暴露给外部客户端
-（VSCode Cline 等），**不含任何写操作**，路径被限制在 `wiki/` 内（`../` 与绝对路径一律
-`PATH_OUT_OF_WIKI`）。四个工具：
+`mcp/wiki_mcp.py` 把 `wiki/` 的读取能力暴露给兼容 MCP 的客户端，**不含任何写操作**，
+路径被限制在 `wiki/` 内（`../` 与绝对路径一律 `PATH_OUT_OF_WIKI`）。这是可选集成面，
+网页版与 CLI 不使用它，也不依赖任何外部 agent 客户端。四个工具：
 
 | 工具 | 返回量 | 用法 |
 |---|---|---|
@@ -59,13 +49,13 @@ Query 默认**不写库**：不建页、不改页、不动 `index.md`/`log.md`�
 
 `read_index("seeds")` 与 `"all"` 返回 **13.4 万字符**（1739 个种子页清单），
 在有限调用预算下不要调用，只有人工巡检全库时才用。
-返回的 `meta.warnings` 会把"已过期""坐标未核验"直接说给调用方，外部 agent 据此决定转调高德/秘塔。
+返回的 `meta.warnings` 会把"已过期""坐标未核验"直接说给调用方，调用方据此决定转调高德/秘塔。
 
 ## 快速管线（scripts/plan_agent.py）
 
-外部 agent 客户端（Cline 等）跑一次规划实测 140–156 秒，其中 88% 是模型往返：它每轮都要"想一下
-下一步调哪个工具"，thinking 输出量是可见正文的 8 倍。对**第一次规划**（无缓存可复用）这类题目的
-取数顺序其实是确定的，所以本仓库自带一条固定顺序的管线客户端。
+自由形式的 agent 多轮工具调用，大头时间花在"想下一步调哪个工具"上；而这类题目的取数顺序
+基本固定。所以本仓库自带一条固定顺序的管线：模型只在澄清、初稿、补查、终稿四处出场，
+取数与排版交给代码。网页版直接复用同一条管线，不另写流程。
 
 ```
 .venv/Scripts/python.exe scripts/plan_agent.py "题目原文" [--date 2026-10-08]
@@ -85,10 +75,10 @@ Query 默认**不写库**：不建页、不改页、不动 `index.md`/`log.md`�
   **目的地不许 waived**（没有地名规划无从谈起）。`missing` 由代码算，不信模型自称"齐了"：
   模型漏问的槽用 `CLARIFY_SLOTS`/`CLARIFY_ASK` 兜底，追问已明确的槽丢掉，一次最多 3 问、按固定优先级排。
   题目本来就写全时它取代原来的抽取，**不多花一次 LLM 也不多花时间**。
-- **关思考**：请求体带 `thinking={"type":"disabled"}` 与 `reasoning_effort="minimal"`。Cline 走
-  openai-compatible 时不会替你发这个字段，所以只能在自家客户端里控制。
+- **关思考**：请求体带 `thinking={"type":"disabled"}` 与 `reasoning_effort="minimal"`。
+  第三方 OpenAI-compatible 客户端不保证透传这个字段，所以由仓库内的 `llm()` 统一控制。
 - **弱化版不再内置配额**（③已删）：`--max-external 0` 表示不限，路段也不限条数。
-  **但外部调用要按剩余额度分配**：`webapp` 入口传 `max_external=24`，`gather_external` 把剩余额度
+  **但外部调用要按剩余额度分配**：`webapp` 入口传 `max_external=32`，`gather_external` 把剩余额度
   当 `pick_legs` 的预算、`run_plan` 再按剩余额度限补查轮——早先只截 POI 时，一题绍兴跑出过 30 次。
 - **并发只能是 2**：`run_calls()` 用 `min(2, len(calls))`。高德个人 key 的并发上限是 3，
   实测 6 并发一波挂 5 条、3 并发挂 2 条（`CUQPS_HAS_EXCEEDED_THE_LIMIT`，是限流不是没数据），
@@ -204,39 +194,25 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --
   `GET /api/job/running`（等待期间看阶段）、`GET /api/plan/<job_id>/status`、
   `GET /api/config`（`AMAP_JS_KEY`/`AMAP_JS_SECURITY_CODE`，缺失返回空串让前端隐藏地图块）、
   `GET /api/plans`（读 `.cache/plans/` 最近 20 条）、`GET /api/plans/<plan_id>`。
-- 前端首页是**对话气泡流**，不是表单：`ready=false` 期间"开始规划"按钮一直禁用，
-  追问的可点短答案来自模型给的 `questions[].options`。
+- 前端首页是**行程海报 + 对话卡**的双栏：左栏讲清规划依据，右栏是气泡流与输入区；
+  顶部槽位条实时显示五项需求（目的地/起点/时间/预算/偏好）的已填、待确认、不限状态。
+  `ready=false` 期间"开始规划"按钮一直禁用，追问的可点短答案来自 `questions[].options`。
+- 方案页是"行程单"：封面、地图、逐日时间线、可展开的条目详情与来源清单；
+  历史页平铺最近 20 条。
 - 每次跑成功的方案落 `.cache/plans/<plan_id>.json`（gitignore 内）。
-- **web 走的是 Query 路径，默认不写库**：不动 `wiki/`、`raw/`、`index.md`、`log.md`。
-- 契约与逐条实测校准记在 `docs/frontend-plan.md`（第 3/4/5/7 节），改前端前先读它。
+- **web 走的是 Query 路径，没有写库分支**：不动 `wiki/`、`raw/`、`index.md`、`log.md`。
+- API 契约与逐条实测校准记在 `docs/frontend-plan.md`（第 3/4/5/7 节），改前端前先读它；
+  2026-10-20 的视觉重构已替换该文档第 4 节的旧配色与布局，以 `webapp/static/style.css` 为准。
 
-## 批量导入（外部知识库冷启动）
-
-`scripts/wikivoyage_import.py` 从 zhwikivoyage 转储批量生成种子页。约定见
-`schema/schema.md` 的"批量种子页"一节，要点：
-
-- 转储放 `.cache/`（已 gitignore），每页 wikitext 单独落 `raw/wikivoyage/` 快照，
-  条目以表格内嵌在城市页，**不逐个建 POI 页**。
-- 种子页带 `coord_status: unverified`，坐标不得直接用于规划；`valid_until` =
-  转储日期 + 90 天，所以它们天生处于"待核实"，这是设计而非缺陷。
-- **高德/秘塔配额有限：只在某页面被真正使用时才现场核实并顺手升级该条目，
-  不要为了"把数据补全"而批量调 API。**
-
-```
-.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --stats
-.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --scope china --dry-run --limit 20
-.venv/Scripts/python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --scope china --exclude 杭州市
-```
-
-## Lint（核查）
+## Lint（只读核查）
 
 触发：用户要求"检查知识库"，或某页面被 Query 使用时发现存疑字段。
 
-1. 扫描 `wiki/` 中 `valid_until` 已过期的页面/字段。
-2. 用 MCP 工具重新核实，更新页面并在 `log.md` 记录"lint 修复"。
-3. 检查断链（互链指向不存在的文件）与孤立页面（无任何入链）。
-4. 上述 1–3 可先跑 `.venv/Scripts/python.exe scripts/lint_wiki.py` 自动扫一遍，再人工复核它标出的存疑项。
-   脚本每次 ingest 后都应运行，退出码非 0 表示仍有问题待修。
+1. 跑 `.venv/Scripts/python.exe scripts/lint_wiki.py`，检查过期 `valid_until`、frontmatter、
+   断链、脚注与孤立页面。
+2. 把问题清单整理给用户；**不要更新页面、不要改 `log.md`**。修复由人工维护并提交。
+3. 被 Query 用到的存疑字段，在本次方案里现查现用，并把"这是现查结果"标清楚；
+   不要顺手把新结论写回 `wiki/`。
 
 ## MCP 工具约定
 
@@ -255,27 +231,27 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --
 - `get_amap_poi_search` 可选 `show_fields`（默认 None 保持旧行为）。要评分/开放时间/照片就传
   `business,photos`——**键名是复数 `photos`，传 `photo` 不报错但静默不给**；
   拿到的 `photos[].url` 是 `http://`，本机实测 http 超时、同 URL 换 https 才 200，落地时记得升级。
-- 若 `METASO_API_KEY` 缺失导致 `ok=false`，可退回使用 agent 内置的 WebSearch/WebFetch，
-  但必须在 `raw/web/` 快照头部注明实际使用的工具。
+- 若 `METASO_API_KEY` 缺失导致 `ok=false`，可退回使用 agent 内置的 WebSearch/WebFetch
+  补当次信息，但要在回答里注明"本次用网页检索代替秘塔"，且不要落 `raw/` 或写 `wiki/`。
 - 两个 server 的工具返回都是**单份紧凑 JSON**（无缩进，且不带 `structuredContent` 重复体）。
   直接返回 dict 会让 FastMCP 同时吐两份，实测一次规划 24 次工具返回 827 KB → 310 KB；
   上下文长度就是模型往返耗时，所以别把工具改回返回 dict。
 - **同参数 15 分钟内复用缓存**（`TRAVEL_DEDUP_TTL` 秒，设 0 关闭）：命中时不请求外部接口，
   返回体 `meta.reused_call` 说明复用自第几次调用。只有成功结果才缓存，失败一律真发重试。
   POI 检索换了关键词但命中同一地点时，条目带 `seen_in_call`、全重复时 `meta.note` 会明说，
-  据此停止重复检索。落 `raw/` 快照走的也是这套返回，落盘时会还原成缩进版且字段不裁。
+  据此停止重复检索。
 
 ## Windows 控制台注意
 
-本机的终端输出编码不是 UTF-8，**打印中文会变成乱码**（文件本身没问题）。
-凡是让脚本输出中文摘要，一律写入临时文件再用 Read 查看，不要依赖 stdout。
+脚本输出中文时先 `sys.stdout.reconfigure(encoding="utf-8")`；Git Bash 里一般可直接读。
+从 cmd 或重定向到文件仍可能乱码，需要人工阅读的报告一律写 UTF-8 文件再用 Read 查看。
 
 ## 工具脚本
 
 跑脚本一律用项目自己的虚拟环境解释器（系统 Python 无 mcp/httpx）：
 
 ```
-.venv/Scripts/python.exe scripts/raw_snapshot.py <tool> <raw/相对路径> '<参数json>'
+# 只读，agent 可用
 .venv/Scripts/python.exe scripts/snapshot_digest.py <快照或目录>... -o .cache/digest.md
 .venv/Scripts/python.exe scripts/lint_wiki.py
 ```
@@ -285,8 +261,8 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --
 **不要临时手写解析代码**——返回结构有四种且键名不直观（搜索结果是 lowercase `webpages`），
 现写必然踩两三次空跑。
 
+`scripts/raw_snapshot.py` 与 `scripts/wikivoyage_import.py` 会写 `raw/` / `wiki/`，
+**只供人工维护，agent 不执行**。它们的用法写在 README 的"知识库维护（人工执行）"。
+
 首次搭建：`uv venv .venv` 然后 `uv pip install --python .venv/Scripts/python.exe -r requirements.txt`
 （`requirements.txt` 里 `mcp` 锁 `<2`，因为 v2 把 `FastMCP` 改名成了 `MCPServer`）。
-
-`raw_snapshot.py` 会加载仓库根 `.env` 注入 Key，并把完整返回体落盘（Ingest 第 3 步用它，
-不要手写 JSON）。返回中的 `steps`/`polyline` 会让单个快照达到几十 KB，属正常，勿截断。

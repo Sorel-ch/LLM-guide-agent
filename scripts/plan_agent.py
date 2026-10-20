@@ -208,7 +208,7 @@ def llm(messages, *, max_tokens: int, temperature: float = 0.0, thinking: str = 
     if not (base and key and model):
         raise SystemExit(
             "缺少 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL。请在仓库根 .env 补这三行"
-            "（值同你在 Cline 里填的 OpenAI Compatible 配置）。"
+            "（OpenAI Compatible 模型配置，变量名见 .env.example）。"
         )
     body = {
         "model": model,

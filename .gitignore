@@ -4,8 +4,12 @@ __pycache__/
 .venv/
 data/
 .cache/
-temp files: ignore intermediate analysis outputs written during bulk import
-.cache/
+
+# 汇报与导出文档不入库（docx 源文件与生成物都放在这里）
+/docx/
+*.docx
+
+# 批量导入等的临时分析产物
 _*.txt
 _*.json
 

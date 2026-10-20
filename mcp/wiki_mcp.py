@@ -1,4 +1,4 @@
-"""只读 wiki MCP server：把 `wiki/` 的查询能力暴露给外部 agent（如 VSCode Cline）。
+"""只读 wiki MCP server：把 `wiki/` 的查询能力暴露给兼容 MCP 的客户端。
 
 设计约束（决定了工具为什么这么切）：
 - `wiki/index.md` 有 13 万字符，其中 1739 行是批量种子页。整份返回会瞬间吃满上下文，
