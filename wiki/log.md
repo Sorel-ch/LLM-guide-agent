@@ -31,3 +31,4 @@
 | 2026-10-26 | pois/×7、routes/×2、cities/杭州.md | remove | 决定 wiki 完全由 Wikivoyage 转储派生：删除 LLM 写入时代全部人工页（含杭州首摄 3 POI+1 路线、宁波 promote 4 POI+1 路线），手写杭州页删除后由下次刷新生成正规种子页 |
 | 2026-10-26 | cities/宁波.md、宁波_海曙.md、宁波_鄞州.md | remove | 回退至批量导入时的原始种子渲染（8b6767b^），刷新可无条件覆盖 cities；对应 raw/amap、raw/web 快照按只增契约保留 |
 | 2026-10-26 | index.md | remove | 清空 城市/POI/路线/待建 四个人工区块，仅保留种子页区块 |
+| 2026-10-26 | cities/×1710 | lint | 修复 section_map 不剥模板标题的缺陷（=={{住宿}}== 整节被静默丢弃），用库内快照全库重渲染对齐；raw 快照与 Dump 日期未动，lint 1734 页通过 |

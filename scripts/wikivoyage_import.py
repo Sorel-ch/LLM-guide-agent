@@ -299,12 +299,22 @@ def china_titles(dump_path: Path, root: str, max_depth: int):
 
 
 def section_map(wikitext: str):
-    """按二级章节切分，返回 {标题: 正文}；正文从标题行的下一行开始，避免标题重复。"""
-    heads = [(m.start(), m.end(), m.group(2)) for m in SECTION_RE.finditer(wikitext) if len(m.group(1)) == 2]
+    """按二级章节切分，返回 {标题: 正文}；正文从标题行的下一行开始，避免标题重复。
+
+    上游惯用 `=={{住宿}}==` 这种带模板的标题，键名要剥掉模板壳才能和
+    render_city 的中文键（了解/抵达/住宿…）对上——不剥则整节被静默丢弃。
+    """
+    heads = []
+    for m in SECTION_RE.finditer(wikitext):
+        if len(m.group(1)) != 2:
+            continue
+        head = re.sub(r"\{\{([^{}|]+)(?:\|[^{}]*)?\}\}", r"\1", m.group(2)).strip()
+        if head:
+            heads.append((m.start(), m.end(), head))
     out = {}
     for idx, (_, body_start, head) in enumerate(heads):
         end = heads[idx + 1][0] if idx + 1 < len(heads) else len(wikitext)
-        out[head.strip()] = wikitext[body_start:end]
+        out[head] = wikitext[body_start:end]
     return out
 
 

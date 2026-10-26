@@ -125,6 +125,37 @@ def write_refreshed(title, wikitext, page_path, dump_date, valid_until):
     page_path.write_text(body, encoding="utf-8")
 
 
+def rerender_from_snapshots(show: int) -> int:
+    """修了渲染逻辑后，用各页现有快照全库重渲染对齐（不读转储、不写新快照）。
+
+    updated/valid_until 沿用快照自己的 Dump 日期，保证全库重渲染≡内容修正，
+    不会把没变化的页伪装成新数据。
+    """
+    rewritten = []
+    seeds = load_seed_pages()
+    for title, info in sorted(seeds.items()):
+        snap = info["snapshot"]
+        if snap is None:
+            continue
+        text = snap.read_text(encoding="utf-8")
+        fields, body = split_snapshot(text)
+        dump_date = fields.get("Dump", "")
+        if not dump_date:
+            continue
+        valid_until = (datetime.strptime(dump_date, "%Y-%m-%d").date() + timedelta(days=90)).isoformat()
+        new_body, _s, _n = wi.render_city(
+            title, wi.parse_listings(body), wi.section_map(body),
+            dump_date, "raw/wikivoyage/%s" % snap.name, valid_until)
+        old = info["page"].read_text(encoding="utf-8")
+        if old != new_body:
+            info["page"].write_text(new_body, encoding="utf-8")
+            rewritten.append(title)
+    print("re-render: %d/%d 页输出有变（示例: %s）" % (
+        len(rewritten), len(seeds), ", ".join(rewritten[:show])))
+    print("index 种子区块已按磁盘重建，共 %d 条" % wi.reindex_from_disk())
+    return len(rewritten)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dump", help="转储路径；缺省自动下载 latest 到 .cache/")
@@ -136,7 +167,13 @@ def main() -> int:
     ap.add_argument("--root", default="中华人民共和国")
     ap.add_argument("--depth", type=int, default=2)
     ap.add_argument("--show", type=int, default=30, help="报告里最多列出多少个标题")
+    ap.add_argument("--re-render", action="store_true",
+                    help="不读转储，用库内快照按当前渲染逻辑全库重对齐（修 render bug 后用）")
     args = ap.parse_args()
+
+    if args.re_render:
+        rerender_from_snapshots(args.show)
+        return 0
 
     if args.dump:
         dump_path = Path(args.dump)
