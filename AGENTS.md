@@ -9,8 +9,10 @@
 2. 不新增、覆盖、删除 `raw/` 快照。`raw/` 的"只增不改不删"是人工维护契约，agent 不参与写入。
 3. **不做 Ingest / 收录**：用户要求"把这条路线收录进 wiki"时，说明当前 agent 没有写库权限；
    如确有价值，把建议内容写到 `.cache/` 供人工审核，不要动 `wiki/`、`raw/`。
-4. 不运行会写库的脚本：`scripts/raw_snapshot.py`、`scripts/wikivoyage_import.py` 仅供人工维护；
-   `scripts/lint_wiki.py`、`scripts/snapshot_digest.py` 只读，可以运行。
+4. 不运行会写库的脚本：`scripts/raw_snapshot.py`、`scripts/wikivoyage_import.py`、
+   `scripts/refresh_wikivoyage.py --apply/--re-render` 仅供人工维护；
+   `scripts/lint_wiki.py`、`scripts/snapshot_digest.py` 只读，可以运行；
+   `refresh_wikivoyage.py` 不带 `--apply` 时是纯 dry-run，允许运行。
 5. 规划时只查不改。网页版与 CLI 都走 Query 路径，没有任何写库分支。
 6. 时效性敏感信息（门票、营业时间、交通管制、天气结论）一律以本次现查为准；
    `wiki/` 只提供背景与线索，不要把过期页面包装成"已核实"。
@@ -254,6 +256,7 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --
 # 只读，agent 可用
 .venv/Scripts/python.exe scripts/snapshot_digest.py <快照或目录>... -o .cache/digest.md
 .venv/Scripts/python.exe scripts/lint_wiki.py
+.venv/Scripts/python.exe scripts/refresh_wikivoyage.py            # 月度刷新 dry-run（自动下载 latest 转储）
 ```
 
 `snapshot_digest.py` 是读快照的唯一正确方式：它把秘塔返回里嵌套的 JSON 字符串解开、
