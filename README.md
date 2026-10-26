@@ -138,8 +138,9 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/lint_wiki.py
 
 - **`raw/` 只增不改不删**：API 返回与网页原文以快照保存，文件名
   `raw/<来源>/<YYYY-MM-DD>_<主题>_<参数摘要>.<json|md>`。
-- **`wiki/` 由人工维护**：页面必须遵循 [schema/schema.md](schema/schema.md) 的模板、
-  frontmatter、脚注与互链规则；每个事实性结论要能指回 `raw/` 快照或外部 URL。
+- **`wiki/` 由脚本与人工共同维护**：`wiki/cities` 自 2026-10-26 起完全由 Wikivoyage
+  转储派生、只被 `refresh_wikivoyage.py --apply` 覆盖，不再有人工编辑页；页面仍遵循
+  [schema/schema.md](schema/schema.md) 的模板与 frontmatter 规则，每个事实性结论要能指回 `raw/` 快照或外部 URL。
 - **agent 没有写库权限**：规划 agent 不新建 / 修改 / 删除 `wiki/` 与 `raw/`，也不跑落盘脚本。
   需要更新知识库时，由人执行维护脚本、检查 diff 后提交。
 - 时效性字段（门票、营业时间、交通管制、天气结论）必须带 `valid_until`；过期项在 Query 时现查。
@@ -153,6 +154,13 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/raw_snapshot.py <tool> 
 
 rem 从 Wikivoyage 转储批量生成种子页（坐标标 unverified，valid_until = 转储日期 + 90 天）
 E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/wikivoyage_import.py --dump .cache/zhwy.xml.bz2 --scope china --dry-run --limit 20
+
+rem 月度刷新（推荐入口）：不带参数=自动下载 latest 转储、逐页对快照哈希做 dry-run 报告
+E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/refresh_wikivoyage.py
+rem --apply 写库：变化页覆盖+新快照、上游改名/消失自动跟进、末尾重建 index；diff 仍由人审查后提交
+E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/refresh_wikivoyage.py --apply
+rem 改了渲染逻辑后用库内快照全库重对齐（不读转储、不写新快照）
+E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/refresh_wikivoyage.py --re-render
 
 rem 读快照（唯一正确方式，勿手写解析）
 E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/snapshot_digest.py <快照或目录>... -o .cache/digest.md
