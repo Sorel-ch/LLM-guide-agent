@@ -27,6 +27,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import wiki_page as wp
 import wikivoyage_import as wi
 
 REPO = wi.REPO
@@ -108,12 +109,17 @@ def download_dump(dest: Path) -> None:
     print("已下载 %s（%.1f MB）" % (dest.name, dest.stat().st_size / 1e6))
 
 
-def write_refreshed(title, wikitext, page_path, dump_date, valid_until):
+def write_refreshed(title, wikitext, page_path, dump_date, valid_until, simplify=False):
     rel_snap = "raw/wikivoyage/%s_%s.md" % (dump_date, wi.snapshot_name(title))
     snap_path = REPO / rel_snap
     body, _summary, _n = wi.render_city(
         title, wi.parse_listings(wikitext), wi.section_map(wikitext),
         dump_date, rel_snap, valid_until)
+    # 保留 Wikipedia 拥有的 背景/交通 与人工新增章节，避免整页覆盖
+    if page_path.exists():
+        body = wp.merge_wikivoyage_page(page_path.read_text(encoding="utf-8"), body)
+    if simplify:
+        body = wp.simplify_page(body)
     if not snap_path.parent.exists():
         snap_path.parent.mkdir(parents=True, exist_ok=True)
     if not snap_path.exists():  # raw 只增不改：同日期同题已有快照就不覆盖
@@ -125,11 +131,11 @@ def write_refreshed(title, wikitext, page_path, dump_date, valid_until):
     page_path.write_text(body, encoding="utf-8")
 
 
-def rerender_from_snapshots(show: int) -> int:
+def rerender_from_snapshots(show: int, simplify: bool = False, dry_run: bool = False) -> int:
     """修了渲染逻辑后，用各页现有快照全库重渲染对齐（不读转储、不写新快照）。
 
     updated/valid_until 沿用快照自己的 Dump 日期，保证全库重渲染≡内容修正，
-    不会把没变化的页伪装成新数据。
+    不会把没变化的页伪装成新数据。重渲染同样保留 Wikipedia 章节。
     """
     rewritten = []
     seeds = load_seed_pages()
@@ -147,12 +153,22 @@ def rerender_from_snapshots(show: int) -> int:
             title, wi.parse_listings(body), wi.section_map(body),
             dump_date, "raw/wikivoyage/%s" % snap.name, valid_until)
         old = info["page"].read_text(encoding="utf-8")
+        new_body = wp.merge_wikivoyage_page(old, new_body)
+        old_updated = wp.fm_get(wp.parse_frontmatter(old)[0], "updated")
+        if old_updated:  # 重渲染不是新数据，保留原 updated，避免全库假更新
+            new_body = re.sub(r"^updated:.*$", "updated: " + old_updated,
+                              new_body, count=1, flags=re.M)
+        if simplify:
+            new_body = wp.simplify_page(new_body)
         if old != new_body:
-            info["page"].write_text(new_body, encoding="utf-8")
+            if not dry_run:
+                info["page"].write_text(new_body, encoding="utf-8")
             rewritten.append(title)
-    print("re-render: %d/%d 页输出有变（示例: %s）" % (
-        len(rewritten), len(seeds), ", ".join(rewritten[:show])))
-    print("index 种子区块已按磁盘重建，共 %d 条" % wi.reindex_from_disk())
+    print("re-render%s: %d/%d 页输出有变（示例: %s）" % (
+        "（dry-run）" if dry_run else "", len(rewritten), len(seeds),
+        ", ".join(rewritten[:show])))
+    if not dry_run:
+        print("index 种子区块已按磁盘重建，共 %d 条" % wi.reindex_from_disk())
     return len(rewritten)
 
 
@@ -169,10 +185,12 @@ def main() -> int:
     ap.add_argument("--show", type=int, default=30, help="报告里最多列出多少个标题")
     ap.add_argument("--re-render", action="store_true",
                     help="不读转储，用库内快照按当前渲染逻辑全库重对齐（修 render bug 后用）")
+    ap.add_argument("--dry-run", action="store_true", help="--re-render 时只报告，不写库")
+    ap.add_argument("--simplify", action="store_true", help="重渲染后整页转简体")
     args = ap.parse_args()
 
     if args.re_render:
-        rerender_from_snapshots(args.show)
+        rerender_from_snapshots(args.show, simplify=args.simplify, dry_run=args.dry_run)
         return 0
 
     if args.dump:
@@ -241,7 +259,7 @@ def main() -> int:
         if txt is None:
             print("  [warn] %s 判为 changed 但转储里取不到正文，跳过" % title)
             continue
-        write_refreshed(title, txt, seeds[title]["page"], dump_date, valid_until)
+        write_refreshed(title, txt, seeds[title]["page"], dump_date, valid_until, args.simplify)
         written += 1
     for old, new in sorted(renamed.items()):
         seeds[old]["page"].unlink()
@@ -250,7 +268,7 @@ def main() -> int:
         if new_path.exists():
             print("  renamed: 删旧页 %s（%s 已在库内）" % (old, new))
         elif txt and wi.parse_listings(txt):
-            write_refreshed(new, txt, new_path, dump_date, valid_until)
+            write_refreshed(new, txt, new_path, dump_date, valid_until, args.simplify)
             print("  renamed: %s → 新建 %s，删旧页" % (old, new_path.name))
         else:
             print("  renamed: 删旧页 %s（目标 %s 无 listing，不入库）" % (old, new))
@@ -269,7 +287,7 @@ def main() -> int:
                 continue
             body, _s, _n = render_city(title, wi.parse_listings(txt), wi.section_map(txt),
                                        dump_date, "raw/wikivoyage/%s_%s.md" % (dump_date, wi.snapshot_name(title)), valid_until)
-            write_refreshed(title, txt, city_path, dump_date, valid_until)
+            write_refreshed(title, txt, city_path, dump_date, valid_until, args.simplify)
             added += 1
         print("新增入库 %d 页" % added)
     print("覆盖刷新 %d 页 -> %s / raw 新快照同数（unchanged 未写任何文件）" % (written, "wiki/cities"))

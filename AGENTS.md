@@ -10,9 +10,11 @@
 3. **不做 Ingest / 收录**：用户要求"把这条路线收录进 wiki"时，说明当前 agent 没有写库权限；
    如确有价值，把建议内容写到 `.cache/` 供人工审核，不要动 `wiki/`、`raw/`。
 4. 不运行会写库的脚本：`scripts/raw_snapshot.py`、`scripts/wikivoyage_import.py`、
-   `scripts/refresh_wikivoyage.py --apply/--re-render` 仅供人工维护；
+   `scripts/refresh_wikivoyage.py --apply/--re-render`、`scripts/refresh_wikipedia.py --apply`
+   仅供人工维护；
    `scripts/lint_wiki.py`、`scripts/snapshot_digest.py` 只读，可以运行；
-   `refresh_wikivoyage.py` 不带 `--apply` 时是纯 dry-run，允许运行。
+   `refresh_wikivoyage.py` 不带 `--apply` 时是纯 dry-run，允许运行；
+   `refresh_wikipedia.py` 默认 dry-run，`--preview-dir` 也只写 `.cache/`，允许运行。
 5. 规划时只查不改。网页版与 CLI 都走 Query 路径，没有任何写库分支。
 6. 时效性敏感信息（门票、营业时间、交通管制、天气结论）一律以本次现查为准；
    `wiki/` 只提供背景与线索，不要把过期页面包装成"已核实"。
@@ -36,6 +38,16 @@
 
 Query **没有写库分支**：不建页、不改页、不动 `index.md`/`log.md`，也不落 `raw/` 快照。
 即使用户说"收录/沉淀这条路线"，也只给建议或写 `.cache/` 草稿，由人工维护知识库。
+
+## 维基百科正文（混合来源页）
+
+部分城市页的 `## 背景` / `## 交通` 由 `scripts/refresh_wikipedia.py` 从中文维基百科
+（CC BY-SA 4.0）刷新，frontmatter 带 `prose_upstream: wikipedia`、`wikipedia_title`、
+`wikipedia_revid`、`prose_hash`；其余章节仍来自 Wikivoyage。Query 读取方式不变。
+
+- 两类正文都只作背景；页面内可能同时存在 Wikivoyage 与维基百科两段署名，不要删。
+- `prose_upstream: manual` 的页面不要建议脚本覆盖；人工改写后应显式改成该值。
+- 维基百科正文的时效性同样以页面 `valid_until` 为准；过期时仍按 Query 流程现查。
 
 ## 只读 wiki MCP（可选集成）
 
@@ -257,6 +269,8 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --
 .venv/Scripts/python.exe scripts/snapshot_digest.py <快照或目录>... -o .cache/digest.md
 .venv/Scripts/python.exe scripts/lint_wiki.py
 .venv/Scripts/python.exe scripts/refresh_wikivoyage.py            # 月度刷新 dry-run（自动下载 latest 转储）
+.venv/Scripts/python.exe scripts/refresh_wikipedia.py             # 维基百科正文 dry-run（API 增量）
+.venv/Scripts/python.exe scripts/refresh_wikipedia.py --only 宁波 --preview-dir .cache/wp-preview
 ```
 
 `snapshot_digest.py` 是读快照的唯一正确方式：它把秘塔返回里嵌套的 JSON 字符串解开、
@@ -264,8 +278,9 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --
 **不要临时手写解析代码**——返回结构有四种且键名不直观（搜索结果是 lowercase `webpages`），
 现写必然踩两三次空跑。
 
-`scripts/raw_snapshot.py` 与 `scripts/wikivoyage_import.py` 会写 `raw/` / `wiki/`，
-**只供人工维护，agent 不执行**。它们的用法写在 README 的"知识库维护（人工执行）"。
+`scripts/raw_snapshot.py`、`scripts/wikivoyage_import.py` 与
+`scripts/refresh_wikipedia.py --apply` 会写 `raw/` / `wiki/`，**只供人工维护，agent 不执行**。
+它们的用法写在 README 的"知识库维护（人工执行）"。
 
 首次搭建：`uv venv .venv` 然后 `uv pip install --python .venv/Scripts/python.exe -r requirements.txt`
 （`requirements.txt` 里 `mcp` 锁 `<2`，因为 v2 把 `FastMCP` 改名成了 `MCPServer`）。

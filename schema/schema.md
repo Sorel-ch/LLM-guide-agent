@@ -56,3 +56,35 @@ valid_until: 2026-12-27         # 过期后 Query 时必须现场核实
 - 高德/秘塔配额有限：只在被实际使用时核实，不要为提升数据质量而主动批量调用。
 - 自动核查：`python scripts/lint_wiki.py`（检查 frontmatter 字段、过期 valid_until、
   断链、脚注路径是否存在、引用与定义是否匹配、孤立页面）。
+
+## 维基百科正文（混合来源页）
+
+由 `scripts/refresh_wikipedia.py` 写入的页面额外遵守：
+
+- frontmatter 保留 `upstream: wikivoyage`（供 `refresh_wikivoyage.py` 识别），另加：
+
+  ```yaml
+  prose_upstream: wikipedia
+  wikipedia_title: 宁波市
+  wikipedia_revid: 95343322
+  wikipedia_dump: 2026-11-01
+  wikipedia_fetched: 2026-11-03
+  prose_hash: <抽取后正文的 sha1>
+  ```
+
+- `sources` 同时列 `raw/wikivoyage/...` 与 `raw/wikipedia/...`。维基百科快照命名为
+  `<日期>_<维基标题>_r<revid>.md`，头部记 `Source/Oldid/Dump/Fetched/License`；
+  `raw/` 仍遵守“只增不改不删”。
+- **章节归属**：
+  - 维基百科：`背景`、`交通`
+  - Wikivoyage：`抵达`、`当地交通`、`住宿`、`购物`、`内嵌 POI`
+  - 系统：`待办`
+
+  两个刷新脚本只替换自己拥有的章节，另一方的章节与未知章节原样保留；章节顺序沿用
+  旧页，不因刷新整体重排。
+- 正文开头保留两段署名：Wikivoyage 与中文维基百科（CC BY-SA 4.0，带 oldid 永久链接）。
+- 新写入正文统一简体；`refresh_wikipedia.py --simplify-all` 可一次性把存量页转简体。
+  简体化保留 H1 原文，避免破坏与上游标题的匹配。
+- `valid_until` 取两个来源中较早的过期日（各自转储/抓取日期 + 90 天），任一侧过期都会
+  触发 Query 复核。
+- `prose_upstream: manual` 的页面不会被自动脚本覆盖；人工改写正文时应显式改成该值。

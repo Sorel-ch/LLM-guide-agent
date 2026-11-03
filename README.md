@@ -138,9 +138,10 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/lint_wiki.py
 
 - **`raw/` 只增不改不删**：API 返回与网页原文以快照保存，文件名
   `raw/<来源>/<YYYY-MM-DD>_<主题>_<参数摘要>.<json|md>`。
-- **`wiki/` 由脚本与人工共同维护**：`wiki/cities` 自 2026-10-26 起完全由 Wikivoyage
-  转储派生、只被 `refresh_wikivoyage.py --apply` 覆盖，不再有人工编辑页；页面仍遵循
-  [schema/schema.md](schema/schema.md) 的模板与 frontmatter 规则，每个事实性结论要能指回 `raw/` 快照或外部 URL。
+- **`wiki/` 由脚本与人工共同维护**：`wiki/cities` 自 2026-10-26 起由外部知识库派生，
+  现在按章节归属由两个刷新脚本共同维护——`refresh_wikivoyage.py` 管旅行章节与 POI 表，
+  `refresh_wikipedia.py` 管 `背景` / `交通` 正文；两边只替换自己的章节，不整页覆盖。
+  页面仍遵循 [schema/schema.md](schema/schema.md) 的模板与 frontmatter 规则，每个事实性结论要能指回 `raw/` 快照或外部 URL。
 - **agent 没有写库权限**：规划 agent 不新建 / 修改 / 删除 `wiki/` 与 `raw/`，也不跑落盘脚本。
   需要更新知识库时，由人执行维护脚本、检查 diff 后提交。
 - 时效性字段（门票、营业时间、交通管制、天气结论）必须带 `valid_until`；过期项在 Query 时现查。
@@ -159,13 +160,23 @@ rem 月度刷新（推荐入口）：不带参数=自动下载 latest 转储、�
 E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/refresh_wikivoyage.py
 rem --apply 写库：变化页覆盖+新快照、上游改名/消失自动跟进、末尾重建 index；diff 仍由人审查后提交
 E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/refresh_wikivoyage.py --apply
-rem 改了渲染逻辑后用库内快照全库重对齐（不读转储、不写新快照）
-E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/refresh_wikivoyage.py --re-render
+rem 改了渲染逻辑后用库内快照全库重对齐（不读转储、不写新快照）；--dry-run 只报告
+E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/refresh_wikivoyage.py --re-render --dry-run
+
+rem 维基百科正文：默认 API 增量 dry-run；先看三城预览，再加 --apply 写库
+E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/refresh_wikipedia.py --only 宁波 绍兴 丁青 --preview-dir .cache/wp-preview
+E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/refresh_wikipedia.py --apply
+rem 月度全量复核（可选）：从 zhwiki pages-articles 转储读，不走 API
+E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/refresh_wikipedia.py --dump .cache/zhwiki-20261101.xml.bz2 --apply
+rem 全库正文转简体（一次性/偶发；建议单独提交一次 diff）
+E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/refresh_wikipedia.py --simplify-all --apply
 
 rem 读快照（唯一正确方式，勿手写解析）
 E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/snapshot_digest.py <快照或目录>... -o .cache/digest.md
 ```
 
+`refresh_wikipedia.py --apply` 会先检查 git 工作区，不干净时拒绝写库（加 `--force` 可跳过）；
+维基百科快照写到 `raw/wikipedia/<日期>_<标题>_r<revid>.md`，同样只增不改不删。
 人工维护时也要守配额纪律：只在页面被真正使用时核实，不为"补全数据"批量调 API。
 
 ## 开发约定
