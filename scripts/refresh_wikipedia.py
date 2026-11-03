@@ -416,7 +416,10 @@ def main() -> int:
         if not info:
             stats["no_content"] = stats.get("no_content", 0) + 1
             continue
-        status, detail = process_page(page, info, dump_date, args.apply, preview, args.force)
+        try:
+            status, detail = process_page(page, info, dump_date, args.apply, preview, args.force)
+        except Exception as exc:  # 单页失败不中断全量，报告里能看到
+            status, detail = "error", "%s: %s" % (type(exc).__name__, exc)
         stats[status] = stats.get(status, 0) + 1
         if detail:
             details.append("%s: %s" % (page["title"], detail))
