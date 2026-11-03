@@ -45,7 +45,7 @@ BATCH = 50
 MIN_BACKGROUND = 300
 
 
-def api_request(params: dict, retries: int = 3) -> dict:
+def api_request(params: dict, retries: int = 6) -> dict:
     params = dict(params)
     params.setdefault("format", "json")
     params.setdefault("formatversion", "2")
@@ -53,6 +53,7 @@ def api_request(params: dict, retries: int = 3) -> dict:
     body = urllib.parse.urlencode(params, doseq=True).encode("utf-8")
     last = None
     for attempt in range(retries):
+        wait = min(60, 5 * (attempt + 1))
         try:
             req = urllib.request.Request(
                 API, data=body, headers={"User-Agent": USER_AGENT,
@@ -61,12 +62,20 @@ def api_request(params: dict, retries: int = 3) -> dict:
                 data = json.load(resp)
             if "error" in data:
                 last = data["error"]
-                time.sleep(2 + attempt * 2)
+                time.sleep(wait)
                 continue
             return data
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code == 429:
+                try:
+                    wait = max(wait, int(exc.headers.get("Retry-After", "10")))
+                except (TypeError, ValueError):
+                    pass
+            time.sleep(min(60, wait))
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             last = exc
-            time.sleep(2 + attempt * 2)
+            time.sleep(wait)
     raise RuntimeError("Wikipedia API 请求失败: %s" % last)
 
 
@@ -140,37 +149,46 @@ def resolve_titles(pages: list[dict], offline: bool = False) -> dict[str, str | 
     if offline or not pending:
         return out
 
-    candidates: dict[str, list[str]] = {p["title"]: title_candidates(p["title"]) for p in pending}
-    flat = []
-    for values in candidates.values():
-        for value in values:
-            if value not in flat:
-                flat.append(value)
+    def save_cache() -> None:
+        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CACHE_PATH.write_text(
+            json.dumps(cache, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
 
-    resolved: dict[str, str | None] = {}
-    for start in range(0, len(flat), BATCH):
-        batch = flat[start:start + BATCH]
-        data = api_request({
-            "action": "query", "prop": "info|pageprops", "ppprop": "disambiguation",
-            "titles": "|".join(batch), "redirects": "1",
-        })
-        query = data.get("query") or {}
-        existing = {p["title"] for p in query.get("pages") or []
-                    if not p.get("missing") and p.get("ns") == 0
-                    and "disambiguation" not in (p.get("pageprops") or {})}
-        for original in batch:
-            final = _redirect_chain(query, original)
-            if final in existing:
-                resolved[original] = final
-        time.sleep(0.3)
+    # 每 20 页一批：请求量小、每批落一次缓存，429 中断后重跑能接着走
+    chunk_size = 20
+    for start in range(0, len(pending), chunk_size):
+        chunk = pending[start:start + chunk_size]
+        candidates = {p["title"]: title_candidates(p["title"]) for p in chunk}
+        flat = []
+        for values in candidates.values():
+            for value in values:
+                if value not in flat:
+                    flat.append(value)
 
-    for page in pending:
-        hit = next((resolved[c] for c in candidates[page["title"]] if c in resolved), None)
-        out[page["title"]] = hit
-        cache[page["title"]] = hit
+        resolved: dict[str, str | None] = {}
+        for bstart in range(0, len(flat), BATCH):
+            batch = flat[bstart:bstart + BATCH]
+            data = api_request({
+                "action": "query", "prop": "info|pageprops", "ppprop": "disambiguation",
+                "titles": "|".join(batch), "redirects": "1",
+            })
+            query = data.get("query") or {}
+            existing = {p["title"] for p in query.get("pages") or []
+                        if not p.get("missing") and p.get("ns") == 0
+                        and "disambiguation" not in (p.get("pageprops") or {})}
+            for original in batch:
+                final = _redirect_chain(query, original)
+                if final in existing:
+                    resolved[original] = final
+            time.sleep(1.0)
 
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
+        for page in chunk:
+            hit = next((resolved[c] for c in candidates[page["title"]] if c in resolved), None)
+            out[page["title"]] = hit
+            cache[page["title"]] = hit
+        save_cache()
+        print("标题解析 %d/%d（本批 %d 页）" % (
+            min(start + len(chunk), len(pending)), len(pending), len(chunk)), flush=True)
     return out
 
 
@@ -208,7 +226,8 @@ def fetch_pages(titles: list[str]) -> dict[str, dict]:
                     "timestamp": rev.get("timestamp"),
                     "text": content,
                 }
-        time.sleep(0.3)
+        time.sleep(1.0)
+        print("正文抓取 %d/%d" % (min(start + BATCH, len(titles)), len(titles)), flush=True)
     return out
 
 
