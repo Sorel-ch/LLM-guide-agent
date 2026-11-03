@@ -58,7 +58,12 @@ def api_request(params: dict, retries: int = 3) -> dict:
                 API, data=body, headers={"User-Agent": USER_AGENT,
                                          "Content-Type": "application/x-www-form-urlencoded"})
             with urllib.request.urlopen(req, timeout=60) as resp:
-                return json.load(resp)
+                data = json.load(resp)
+            if "error" in data:
+                last = data["error"]
+                time.sleep(2 + attempt * 2)
+                continue
+            return data
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             last = exc
             time.sleep(2 + attempt * 2)
