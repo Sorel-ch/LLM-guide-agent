@@ -277,12 +277,6 @@ def write_snapshot(path: Path, title: str, revid: str | int, dump_date: str, wik
     return True
 
 
-def existing_background_len(text: str) -> int:
-    _fm, body = wp.parse_frontmatter(text)
-    _preamble, sections = wp.parse_sections(body)
-    return len(wp.section_body(sections.get("背景", "")))
-
-
 def process_page(page: dict, info: dict, dump_date: str, apply: bool,
                  preview_dir: Path | None, force: bool) -> tuple[str, str]:
     old = page["text"]
@@ -293,8 +287,9 @@ def process_page(page: dict, info: dict, dump_date: str, apply: bool,
     background = prose.get("背景", "")
     if len(background) < MIN_BACKGROUND:
         return "skipped_short", "维基百科背景不足 %d 字" % MIN_BACKGROUND
-    old_len = existing_background_len(old)
-    if old_len and len(background) < old_len * 0.8:
+    old_bg = wp.background_text(old)
+    old_len = len(old_bg)
+    if old_len and not wp.has_labeled_background(old) and len(background) < old_len * 0.8:
         return "skipped_short", "新背景 %d 字 < 旧背景 %d 字的 80%%" % (len(background), old_len)
 
     same_rev = wp.fm_get(page["fm"], "wikipedia_revid") == str(info["revid"])

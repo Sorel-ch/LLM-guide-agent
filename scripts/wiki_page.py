@@ -224,6 +224,82 @@ def first_paragraph(section_text: str) -> str:
     return ""
 
 
+BACKGROUND_LIMIT = 3000
+
+
+def _bg_blocks(text: str) -> list[tuple[str, str]]:
+    """按 `**小节名**` 切背景块；返回 [(标签, 原块文本)]，前导文字标签为空。"""
+    blocks: list[tuple[str, str]] = []
+    label = ""
+    buf: list[str] = []
+    for line in (text or "").splitlines():
+        hit = re.match(r"^\*\*(.+?)\*\*\s*$", line)
+        if hit:
+            if any(x.strip() for x in buf):
+                blocks.append((label, "\n".join(buf).strip()))
+            label = hit.group(1).strip()
+            buf = [line]
+        else:
+            buf.append(line)
+    if any(x.strip() for x in buf):
+        blocks.append((label, "\n".join(buf).strip()))
+    return blocks
+
+
+def _bg_group(label: str) -> str | None:
+    if "历史" in label:
+        return "历史"
+    if "气候" in label:
+        return "气候"
+    if label == "自然" or any(key in label for key in ("地理", "地形", "自然环境")):
+        return "地理"
+    return None
+
+
+def background_text(page_text: str) -> str:
+    _fm, body = parse_frontmatter(page_text)
+    _preamble, sections = parse_sections(body)
+    return section_body(sections.get("背景", ""))
+
+
+def has_labeled_background(page_text: str) -> bool:
+    return any(label for label, _text in _bg_blocks(background_text(page_text)))
+
+
+def merge_background(old_bg: str, new_bg: str, limit: int = BACKGROUND_LIMIT) -> str:
+    """历史/地理用维基百科替换，旧页独有的风景/气候/旅行时间等段落保留。"""
+    old_blocks = _bg_blocks(old_bg)
+    if not any(label for label, _text in old_blocks):
+        return new_bg[:limit].strip()
+
+    new_blocks = _bg_blocks(new_bg)
+    new_intro = next((text for label, text in new_blocks if not label), "")
+    new_labeled = [(label, text) for label, text in new_blocks if label]
+    new_groups = {_bg_group(label) for label, _text in new_labeled} - {None}
+
+    out: list[str] = []
+    old_intro = next((text for label, text in old_blocks if not label), "")
+    if new_intro:
+        out.append(new_intro)
+    elif old_intro:
+        out.append(old_intro)
+    # 维基百科的历史/地理放前面，旧页独有的风景/气候等段落接在后面
+    out.extend(text for _label, text in new_labeled)
+    for label, text in old_blocks:
+        if not label:
+            continue
+        if _bg_group(label) in new_groups:
+            continue
+        out.append(text)
+
+    merged = "\n\n".join(text.strip() for text in out if text.strip())
+    if len(merged) > limit:
+        cut = merged[:limit]
+        pos = cut.rfind("\n\n")
+        merged = cut[:pos] if pos > limit * 0.6 else cut
+    return merged.strip()
+
+
 def page_summary(section_text: str, title: str, limit: int = 70) -> str:
     text = first_paragraph(section_text)
     text = re.sub(r"\{\{[^{}]*\}\}", "", text)
@@ -334,9 +410,14 @@ def extract_wikipedia_sections(wikitext: str) -> dict[str, str]:
     """只取写进城市页的两段：背景（概况/历史/地理）与交通。"""
     sections = _split_wikitext_sections(wikitext)
     parts: list[str] = []
-    overview = clean_wiki(_pick(sections, ("概况", "简介", "城市概况", "名称")), 500)
-    if overview:
-        parts.append(overview)
+    first_head = re.search(r"^(={2,4})\s*.+?\s*\1\s*$", wikitext, re.M)
+    lead = clean_wiki(wikitext[:first_head.start()] if first_head else wikitext, 600)
+    if lead:
+        parts.append(lead)
+    else:
+        overview = clean_wiki(_pick(sections, ("概况", "简介", "城市概况", "名称")), 500)
+        if overview:
+            parts.append(overview)
     history = clean_wiki(_pick(sections, ("历史", "历史沿革", "建置沿革")), 1000)
     if history:
         parts.append("**历史**\n\n" + history)
@@ -463,6 +544,9 @@ def merge_wikipedia_page(
     updates = {k: v for k, v in prose.items() if v}
     if not updates:
         return old_text
+    if "背景" in updates:
+        old_bg = section_body(_sections.get("背景", ""))
+        updates["背景"] = merge_background(old_bg, updates["背景"])
 
     removals = set()
     if fm_get(fields, "prose_upstream") == "wikipedia" and "交通" not in updates:
