@@ -187,5 +187,5 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/snapshot_digest.py <快
   需要人工阅读的报告一律写 UTF-8 文件，再打开查看。
 - 静态资源改完要 bump `index.html` 里的 `?v=`，否则浏览器会继续用缓存。
 - 高德个人 Key 并发上限实测为 3，管线固定 2 并发；不要为提速放开。
-- 规划管线内部细节、踩坑与改动约束见 [AGENTS.md](AGENTS.md)；wiki 页面格式见
-  [schema/schema.md](schema/schema.md)。
+- 维护流程（验证阶梯、验收口径、落盘与提交）与规划管线内部细节、踩坑见 [AGENTS.md](AGENTS.md)；
+  wiki 页面格式见 [schema/schema.md](schema/schema.md)。
