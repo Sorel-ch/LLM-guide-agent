@@ -31,6 +31,7 @@
 
 import argparse
 import asyncio
+import collections
 import concurrent.futures as cf
 import inspect
 import itertools
@@ -1469,6 +1470,92 @@ def leg_index(ext: dict) -> list[dict]:
     return out
 
 
+# ── 车程矩阵（T3）──────────────────────────────────────────────────────
+# 求解器的距离/时长必须是整数矩阵，而 leg_index() 里躺着的是**实测**数据
+# （direction 回来的 minutes）。所以矩阵优先吃实测，只在缺口处回退直线折算，
+# 并且每一条都带上来源，不许把折算值冒充实测值。
+#
+# 为什么需要它：demo 的 solve.py 一直按「直线 ÷ 30 km/h」算车程，
+# 迪士尼→陆家嘴直线 18.4 km 给出 32′，现实周末要 45–55′。
+# 车道低估吃掉的就是窗口余量——排序算法再好也救不回来。
+MATRIX_LEG_MODES = ("walking", "transit", "driving")
+MATRIX_DEFAULT_MODE = "transit"     # 市内段默认按公共交通，比 driving 更贴近游客实际
+MATRIX_SLACK = 1.0                  # 直线折算的保守系数；1.0 = 不额外加罚，只如实标注
+# 多快算「近到可以步行」：2.5 km 与 plan_leg_topup 的判据保持一致
+WALK_MAX_KM = 2.5
+WALK_SPEED_KMH = 4.5
+DRIVE_SPEED_KMH = 20.0             # 市区平均车速，比 30 km/h 保守（含红绿灯与拥堵）
+
+
+def straight_estimate(a: dict, b: dict) -> dict:
+    """没有实测时的回退估算。近处按步行、远处按市区车速，两者都不假装是实测。"""
+    km = km_between(a, b)
+    if km <= WALK_MAX_KM:
+        minutes = max(1, round(km / WALK_SPEED_KMH * 60))
+        basis = "straight_walk"
+    else:
+        minutes = max(1, round(km / DRIVE_SPEED_KMH * 60 * MATRIX_SLACK))
+        basis = "straight_drive"
+    return {"minutes": minutes, "basis": basis, "km": round(km, 3)}
+
+
+def travel_matrix(names: list[str], pois: dict, legs: list[dict] | None = None) -> dict:
+    """给求解器用的对称无关（OD 有向）车程矩阵。
+
+    names：要建矩阵的台账条目名（求解器实际会访问的点）。
+    legs：leg_index() 的产物，用坐标精确匹配端点。
+    返回 {"minutes": {(name_a, name_b): int}, "basis": {...}, "stats": {...}}。
+
+    匹配用**坐标**不用名字：台账里叫「宁波博物院」、模型写「宁波博物馆」这类变体，
+    按名字对会静默漏掉实测值，退化成折算而不自知。
+    """
+    legs = legs or []
+    # 坐标 → 该坐标的实测耗时。同一对坐标可能测过多次（换过出行方式），取最先出现的。
+    measured: dict[tuple[str, str], dict] = {}
+    for leg in legs:
+        a, b = leg.get("a_coord"), leg.get("b_coord")
+        if not a or not b or a == b:
+            continue
+        if leg.get("minutes") is None:
+            continue
+        measured.setdefault((a, b), leg)
+
+    minutes: dict[tuple[str, str], int] = {}
+    basis: dict[tuple[str, str], str] = {}
+    stats = collections.Counter()
+    for x in names:
+        px = pois.get(x)
+        if not px:
+            continue
+        for y in names:
+            if x == y:
+                continue
+            py = pois.get(y)
+            if not py:
+                continue
+            key = (px.get("coord"), py.get("coord"))
+            leg = measured.get(key)
+            if leg:
+                minutes[(x, y)] = max(1, int(leg["minutes"]))
+                basis[(x, y)] = f"measured:{leg.get('mode') or 'transit'}"
+                stats["measured"] += 1
+                continue
+            # 反方向测过就借它的值，但**必须标出来**：direction 的 OD 是有向的，
+            # 反向不保证同值（单行道、步行道、公交去返程不对称都实测存在）。
+            # 借来的值与折算值在出处里要分得开，否则「实测覆盖多少」就成了一笔糊涂账。
+            back = measured.get((py.get("coord"), px.get("coord")))
+            if back:
+                minutes[(x, y)] = max(1, int(back["minutes"]))
+                basis[(x, y)] = f"measured_reverse:{back.get('mode') or 'transit'}"
+                stats["measured_reverse"] += 1
+                continue
+            est = straight_estimate(px, py)
+            minutes[(x, y)] = est["minutes"]
+            basis[(x, y)] = est["basis"]
+            stats[est["basis"]] += 1
+    return {"minutes": minutes, "basis": basis,
+            "stats": dict(stats), "pairs": len(minutes)}
+
 def polyline_of(node: dict) -> list[list[float]]:
     """沿返回体的字段顺序拼出实测折线。v5 把 polyline 放在 paths[].steps[].polyline
     与 transit segments[].walking.steps[] / segments[].bus.buslines[] 里，
@@ -1858,6 +1945,205 @@ def day_sights(rows: list[dict]) -> int:
     return len(kept)
 
 
+# ── 求解器接入（T4）────────────────────────────────────────────────────
+# 定位：PyVRP 只做「已选定的点怎么排时序」，**不选点、不跨天搬点、不碰餐宿**。
+# 见 docs/solver-integration-plan.md §4 的四条硬约束。
+#
+# 为什么是可选的：PyVRP 的 Windows wheel 要到 0.11.3 才覆盖 Python 3.10
+# （0.12+ 要 3.11），本仓库的 .venv 是 3.10。所以这里按「装了就用、没装就退」写，
+# 不把它变成硬依赖——否则整个仓库在没装 pyvrp 的机器上起不来。
+# 开关在**调用时**读，不在模块导入时读死：导入期读死的写法在测试里改不动环境变量，
+# 也意味着运维改了 .env 必须重启进程才认。0 = 关闭。
+SOLVER_ENABLED_ENV = "TRAVEL_SOLVER"
+SOLVER_RUNTIME_S = 2.0        # 单次求解硬上限；超时就回退，不阻塞网页版响应
+SOLVER_MAX_DAYS = 7           # 天太多时求解时间不可控，直接不接
+SOLVER_PRIZE_PER_MIN = 3      # 与 demo 的 PRIZE_FACTOR 同口径
+
+
+def _solver_available() -> tuple[bool, str]:
+    """只在真要接入时 import：没装时是 ImportError 而不是整份管线起不来。"""
+    if os.environ.get(SOLVER_ENABLED_ENV, "1") == "0":
+        return False, f"{SOLVER_ENABLED_ENV}=0 已关"
+    try:
+        import pyvrp  # noqa: F401
+    except Exception as exc:
+        return False, f"未安装 pyvrp（{type(exc).__name__}）"
+    return True, ""
+
+
+def solve_day_order(names: list[str], pois: dict, legs: list[dict],
+                    day_open: int = 6 * 60, day_close: int = 24 * 60,
+                    runtime: float = SOLVER_RUNTIME_S,
+                    seed: int = 1) -> dict:
+    """对**同一天已选定的景点**求一个更省时间的访问次序。
+
+    返回 {"ok": bool, "order": [names], "minutes": {...}, "basis": {...}, "reason": str}
+
+    三条不算数的情形都返回 ok=False 交回调用方回退：
+    点少于 2 个、求解超时/不可行、矩阵里缺这个点的坐标。
+    判据只看「顺序」，不看求解器报的目标值——它按分钟计价，和方案的取舍标准不同。
+    """
+    names = [n for n in names if n in pois]
+    if len(names) < 2:
+        return {"ok": False, "order": names, "reason": "少于 2 个点，顺序无意义"}
+    if any(not (pois[n].get("lon") and pois[n].get("lat")) for n in names):
+        return {"ok": False, "order": names, "reason": "有点缺坐标，建不了矩阵"}
+    ok, why = _solver_available()
+    if not ok:
+        return {"ok": False, "order": names, "reason": why}
+
+    from pyvrp import Model, PenaltyParams
+    from pyvrp.solve import SolveParams
+    from pyvrp.stop import MaxRuntime
+
+    matrix = travel_matrix(names, pois, legs)
+    model = Model()
+    # 0.11.3 只收整数坐标，且 1e6 缩放让 1 int ≈ 0.11 m（不成为误差来源）。
+    scale = 1_000_000
+    model.add_depot(x=round(float(names and pois[names[0]]["lon"]) * scale),
+                    y=round(float(names and pois[names[0]]["lat"]) * scale),
+                    tw_early=day_open, tw_late=day_close)
+    locs: dict[str, int] = {}
+    loc2name: dict[int, str] = {}
+    for n in names:
+        p = pois[n]
+        model.add_client(x=round(float(p["lon"]) * scale), y=round(float(p["lat"]) * scale),
+                         tw_early=day_open, tw_late=day_close,
+                         service_duration=0, prize=SOLVER_PRIZE_PER_MIN, required=True,
+                         name=n)
+        locs[n] = len(model.locations) - 1
+        loc2name[locs[n]] = n
+    # 没显式建的边默认 MAX_VALUE（0.11.3 的 Model.data() 行为），必须全量喂满。
+    by_idx = model.locations
+    for i in range(len(by_idx)):
+        for j in range(len(by_idx)):
+            if i == j:
+                continue
+            na, nb = loc2name.get(i), loc2name.get(j)
+            minutes = matrix["minutes"][(na, nb)] if (na and nb) else 1
+            model.add_edge(by_idx[i], by_idx[j],
+                           distance=int(minutes * 1000), duration=int(minutes))
+    model.add_vehicle_type(num_available=1, tw_early=day_open, tw_late=day_close,
+                           unit_distance_cost=0, unit_duration_cost=1)
+    # 罚则调硬：这里的点是**已经定死的**，只许换顺序，不许像 demo 那样被价值取舍丢掉。
+    params = SolveParams(penalty=PenaltyParams(penalty_increase=2.0, penalty_decrease=0.1,
+                                               target_feasible=0.9))
+    try:
+        sol = model.solve(stop=MaxRuntime(runtime), seed=seed, display=False,
+                          params=params).best
+    except Exception as exc:
+        return {"ok": False, "order": names, "reason": f"求解异常：{type(exc).__name__}"}
+
+    placed = [n for n in names if any(
+        visit.location == locs[n] for route in sol.routes() for visit in route.schedule())]
+    if len(placed) != len(names):
+        return {"ok": False, "order": names,
+                "reason": f"只排进 {len(placed)}/{len(names)}，判为不可行，整组回退"}
+    order = []
+    for route in sol.routes():
+        for visit in route.schedule():
+            n = loc2name.get(visit.location)
+            if n:
+                order.append(n)
+    if sorted(order) != sorted(names):
+        return {"ok": False, "order": names, "reason": "解出的点集与输入不一致"}
+    return {"ok": True, "order": order, "minutes": matrix["minutes"],
+            "basis": matrix["basis"], "stats": matrix["stats"], "reason": ""}
+
+def _resplice_transits(items: list[dict]) -> list[dict]:
+    """按新的相邻关系重写当天交通段的「甲→乙」，保留时长/花费/出行方式等已有字段。
+
+    只改名字里那个 OD，不重新取数：重排不该改变已经实测到的东西，
+    要补的是那几对**没测过的**新相邻——那由 plan_leg_topup 在下一跳处理。
+
+    起点取「紧挨在它前面的那个实体」（景点或餐厅都算，午餐→景点是真的要走的段），
+    终点取「后面第一个实体」。当天最后那条如果原本指向酒店（终点不是当天的地点），
+    起点改成最后一个实体、终点保留原样——它表示收尾回宿，不随景点次序变。
+    """
+    kind_of = lambda x: (x.get("type") or "attraction")  # noqa: E731
+    out: list[dict] = []
+    for i, it in enumerate(items):
+        if kind_of(it) != "transit":
+            out.append(it)
+            continue
+        start = None
+        for j in range(len(out) - 1, -1, -1):
+            if kind_of(out[j]) != "transit":
+                start = str(out[j].get("name") or "")
+                break
+        end = None
+        for j in range(i + 1, len(items)):
+            if kind_of(items[j]) != "transit":
+                end = str(items[j].get("name") or "")
+                break
+        parts = [p.strip() for p in str(it.get("name") or "").split("→")]
+        old_end = parts[1] if len(parts) == 2 else ""
+        if end is None:
+            # 当日最后一条腿：终点沿用原文（通常是酒店），起点跟到最后一个实体
+            out.append({**it, "name": f"{start or old_end}→{old_end}"} if start else it)
+        else:
+            out.append({**it, "name": f"{start or old_end}→{end}"})
+    return out
+
+
+def reorder_day_with_solver(groups: list[dict], pois: dict, legs: list[dict],
+                            max_days: int = SOLVER_MAX_DAYS) -> tuple[list[dict], list[dict]]:
+    """用求解器把每天的**景点先后**重排一遍；餐宿与交通段原位不动。
+
+    只换景点之间的相对次序这一条，是本函数与「管线主流程」的全部契约：
+      - 景点集合必须一模一样（T4 主判据：选点变没变，不是输出序列变没变）；
+      - 餐饮/住宿仍是「插在景点之间」的那几条，按其原本位于第几个景点之后归位；
+      - 交通段按新的相邻关系重新生成名字（甲→乙），否则会出现「顺序换了、腿还是旧的」。
+    任何一天求解失败就整份回退原始 groups，不做部分替换——半套顺序比不换更难查。
+    """
+    if not groups or len(groups) > max_days:
+        return groups, []
+    plan: list[dict] = []
+    for g in groups:
+        sights = [s for s in g["items"] if (s.get("type") or "attraction") == "attraction"]
+        names = [str(s.get("name") or "") for s in sights]
+        res = solve_day_order(names, pois, legs)
+        if not res["ok"]:
+            return groups, [{"day": g.get("day"), "ok": False, "reason": res["reason"]}]
+        plan.append({"day": g.get("day"), "sights": sights, "order": res["order"],
+                     "basis": res.get("basis"), "stats": res.get("stats")})
+
+    out = []
+    for g, pl in zip(groups, plan):
+        sights = pl["sights"]
+        by_name = {}
+        for s in sights:
+            by_name.setdefault(str(s.get("name") or ""), s)
+        new_order = [by_name[n] for n in pl["order"] if n in by_name]
+        if len(new_order) != len(sights):
+            return groups, [{"day": g.get("day"), "ok": False,
+                             "reason": "重排后景点数不一致，整份回退"}]
+        # 非景点条目（餐宿、交通段）按「原本跟在第几个景点后面」归位：
+        # 求解器只决定景点的先后，不决定餐宿插在哪、也不决定哪条腿属于哪一段。
+        # 交通段必须一起收进来——早先只收 meal/hotel，重建时把腿整批丢了，
+        # 端到端实测重排后当天一个交通段都不剩。
+        tails: dict[int, list[dict]] = {}
+        idx = -1
+        for it in g["items"]:
+            if (it.get("type") or "attraction") == "attraction":
+                idx += 1
+            else:
+                tails.setdefault(idx, []).append(it)
+        rebuilt = []
+        if -1 in tails:                      # 第一个景点之前就有餐宿（罕见，照原样放开头）
+            rebuilt.extend(tails[-1])
+        for i, s in enumerate(new_order):
+            rebuilt.append(s)
+            rebuilt.extend(tails.get(i, []))
+        # 交通段要按新相邻关系重写名字（甲→乙）。不重写的话，重排后会出现
+        # 「顺序是 A→B→C、腿却还写着 B→A」——plan_leg_topup 与 match_leg 都按名字/端点解析，
+        # 等于拿旧腿配新序，补测的也是错的那一对。
+        rebuilt = _resplice_transits(rebuilt)  # 交通段按新相邻关系重写 OD
+        out.append({**g, "items": rebuilt})
+    return out, [{"day": pl["day"], "ok": True, "order": pl["order"],
+                  "stats": pl.get("stats")} for pl in plan]
+
+
 LEG_TOPUP_CAP = 10        # 终稿补腿的条数上限：direction 是个人 key 日配额 5000 的便宜接口
 
 
@@ -2166,10 +2452,31 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
         # build_plan_json 里还有幂等的一遍：模型把 N 天全塞进一天时，要等 chunk_days 分完才裁得准。
         pre = normalize_groups(extract_json(final))
         pre_trim: list[tuple[int, str]] = []
+        solver_trace: list[dict] = []
         if pre:
             pre, pre_trim = cap_day_sights(pre, ext["pois"])
-            if pre_trim:
+            # 求解器重排（T4）：**必须排在 cap_day_sights 之后**——先裁到每天 3 站，
+            # 再排那 3 站的先后；反过来会把已被裁掉的点也排进去，等于绕过上限。
+            # 也排在补腿之前：顺序定了，补腿才知道要补哪几对相邻段。
+            pre, solver_trace = reorder_day_with_solver(pre, ext["pois"], leg_index(ext))
+            if solver_trace:
+                ok_days = [t for t in solver_trace if t.get("ok")]
+                if ok_days:
+                    for t in ok_days:
+                        st = t.get("stats") or {}
+                        mark(f"   重排 day{t['day']}  "
+                             + " → ".join(t["order"])
+                             + f"（矩阵 实测 {st.get('measured', 0)}"
+                               f" / 反向 {st.get('measured_reverse', 0)}"
+                               f" / 折算 {st.get('straight_drive', 0) + st.get('straight_walk', 0)}）")
+                else:
+                    mark(f"   重排        跳过：{solver_trace[0].get('reason', '')}")
+            # 裁景点或重排都会改 pre，都要写回 final：只写回裁景点那一支的话，
+            # 重排的结果在下一行就被 plan_leg_topup 用旧 final 盖掉（顺序换了、腿还是旧的）。
+            reordered = any(t.get("ok") for t in (solver_trace or []))
+            if pre_trim or reordered:
                 final = json.dumps({"days": pre}, ensure_ascii=False)
+            if pre_trim:
                 mark("   裁景点      " + "、".join(f"day{d} 删「{n}」" for d, n in pre_trim))
         # F 补腿：终稿的相邻关系此时才确定，主波那条按台账铺的链盖不住模型自己插进去的
         # 餐宿与次日首站。放在 build_plan_json 之前，折线才回查得到。
