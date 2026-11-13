@@ -61,8 +61,16 @@ photo/location/path / 景点=x/x/x / 折返比`。逐条验收口径：
   新进程 bind 失败却看着"服务正常"。
 
 **环境**：`.venv` 是 **Python 3.10**，一切脚本用 `.venv/Scripts/python.exe`（系统 Python 无 `mcp`/`httpx`）。
-**不要往 `.venv` 装 `pyvrp`**：它的 Windows wheel 只覆盖 3.11+。约束求解的实跑在独立工作区
-`E:\code\pyvrp-trip-demo`（自带 3.12 venv），产物不回写本仓库。
+
+**pyvrp 与 Python 3.10**（2026-11-13 更正，原「wheel 只覆盖 3.11+」只对最新版成立）：
+`pyvrp` **0.11.3 起往前**有 `cp310` 的 Windows wheel（`requires_python >=3.10`），
+0.12 及以后才提到 `>=3.11`。所以往本仓库装必须**锁 `pyvrp==0.11.3`**，直接
+`pip install pyvrp` 会解析到装不上的新版。求解器在管线里是**可选增强**：
+`scripts/plan_agent.py` 里 `_solver_available()` 探测不到就整份回退，
+没装也不影响任何既有功能（见 `docs/solver-integration-plan.md` §4、§6.6）。
+0.11.3 与 0.14.x 的 API 差异（`add_location` 没有了、坐标只收 int、
+`ScheduledVisit.start_time` → `start_service`）也在那份文档里。
+约束求解的早期实跑仍在独立工作区 `E:\code\pyvrp-trip-demo`（3.12 venv，产物不回写本仓库）。
 搭建步骤与中文输出注意见下面「工具脚本」「Windows 控制台注意」两节。
 
 ## 只读边界（硬约束）

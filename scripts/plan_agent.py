@@ -1634,6 +1634,50 @@ def normalize_people_tip(row: dict) -> None:
         row["tip"] = PEOPLE_LABEL_RE.sub(money, tip, count=1)
 
 
+# 餐宿条目类型一致性（T5）──────────────────────────────────────────────
+# 模型会把**非餐厅**写进 meal：上海实测把「上海站南广场」当午餐、成都把
+# 「天府红购物中心」当饭点——用户报的"景点之间没有吃饭的地点"就是这个。
+#
+# 判据用**黑名单而不是白名单**（只拦明确不能吃饭的类别），理由是本仓库栽过一次：
+# 用关键词判场所类型，实测错过 2 条（大雁塔景区 vs 大雁塔商圈，只差两个字，性质相反）。
+# 白名单要求"类别必须是餐饮服务"，会把南塘老街/回民街/老外滩这类**确实能吃饭、
+# 但高德归到风景名胜或特色街区**的地方一起误杀——那些正是宁波实测里模型排得对的饭点。
+#
+# 黑名单只收"明确不是吃饭的地方"：车站/机场/停车场/购物中心/公司/住宅。
+# 拿不准的一律放行：宁可漏报一个可疑条目，也不要把对的饭点标成类型错误。
+# 注意「购物服务」是个大筐：购物中心不能吃饭，但**特色街区/步行街/美食街**在里面，
+# 回民街实测就归到「购物服务;特色街区」。子类里带这些词的放行，别整个大类一起拦。
+MEAL_SUSPECT_KINDS = ("交通设施服务", "公司企业", "商务住宅", "地名地址信息",
+                      "购物服务", "公共设施", "科教文化服务", "医疗保健服务")
+EATERY_SUBCATEGORY = ("特色街区", "步行街", "美食", "小吃")
+LODGING_KIND_PREFIX = ("住宿服务",)
+# 购物中心/商场里其实有餐厅，但整条写成一个商场就是没给出饭点，仍算可疑。
+EATERY_AREA_HINTS = re.compile(r"小吃|美食|夜市|大排档|食街|餐厅|饭店|酒楼|面馆|火锅|烧烤|料理")
+
+
+def check_meal_lodging_kind(row: dict, poi: dict | None) -> str | None:
+    """餐宿条目与台账类别对不对得上；对不上返回原因，供调用方标注。
+
+    返回 None 表示通过。只在**能回查到台账**时判——查不到的条目由补查轮负责，
+    不在这里制造第二套"未知即错误"的口径。
+    """
+    if not poi or row.get("type") not in ("meal", "hotel"):
+        return None
+    kind = str(poi.get("type") or "")
+    name = str(row.get("name") or "")
+    if row["type"] == "meal":
+        if not kind.startswith(MEAL_SUSPECT_KINDS):
+            return None          # 餐饮/风景名胜…都可能吃饭，放行
+        if any(sub in kind for sub in EATERY_SUBCATEGORY):
+            return None          # 「购物服务;特色街区」这种子类其实就是街区，能吃饭
+        if EATERY_AREA_HINTS.search(name):
+            return None          # 名字明确是吃的，类别再可疑也放行
+        return f"台账类别是「{kind or '未给'}」，不是能吃饭的地方"
+    if kind.startswith(LODGING_KIND_PREFIX) or LODGING_NAME_RE.search(name):
+        return None
+    return f"台账类别是「{kind or '未给'}」，不是住宿服务"
+
+
 def ledger_lookup(name: str, pois: dict) -> tuple[dict | None, bool]:
     """模型写的条目名回查高德台账，返回 (条目, 是否精确)。
 
@@ -2104,7 +2148,11 @@ def reorder_day_with_solver(groups: list[dict], pois: dict, legs: list[dict],
         names = [str(s.get("name") or "") for s in sights]
         res = solve_day_order(names, pois, legs)
         if not res["ok"]:
-            return groups, [{"day": g.get("day"), "ok": False, "reason": res["reason"]}]
+            # 整份回退，但 trace 要为**每一天**都留痕：只记失败那天的话，调用方会以为
+            # 其余几天也重排过了（T6 端到端实测：两天只回一条，判据对不上）。
+            return groups, [{"day": x.get("day"), "ok": False,
+                             "skipped": x is not g, "reason": res["reason"]}
+                            for x in groups]
         plan.append({"day": g.get("day"), "sights": sights, "order": res["order"],
                      "basis": res.get("basis"), "stats": res.get("stats")})
 
@@ -2220,8 +2268,10 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
     origin_token = ((needs.get("origin_city") or needs.get("origin") or "")
                     if needs.get("intercity") else "")[:2]
     out_days = []
+    kind_notes: list[str] = []      # 餐宿类型存疑条目（T5），跨天汇总进 sources
     for d in groups:
         items = []
+        notes_kind: list[str] = []
         for seg in d["items"]:
             src = str(seg.get("source") or "none")
             cost = _num(seg.get("cost"))
@@ -2239,6 +2289,14 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                 poi, exact = None, False
             else:
                 poi, exact = ledger_lookup(row["name"], ext["pois"])
+            # 餐宿类型与台账类别不符（车站广场当午餐、酒店当晚餐那种）：
+            # 不静默改成别的类型（那是替模型做决定），只把判定理由记进 tip 并在
+            # sources 里计数，让人一眼看出这条不是真餐厅。坐标照给——地点本身是对的。
+            kind_issue = check_meal_lodging_kind(row, poi) if poi else None
+            if kind_issue:
+                notes_kind.append(f"{row['name']}（{row['type']}）：{kind_issue}")
+                row["tip"] = (str(row.get("tip") or "").strip("，。； ")
+                              + f"｜类型存疑：{kind_issue}").lstrip("｜")
             if poi:
                 row["location"] = {"lng": float(poi["lon"]), "lat": float(poi["lat"])}
                 row["rating"] = _num(poi.get("rating"))
@@ -2273,6 +2331,7 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
         out_days.append({"day": d["day"], "date": date, "theme": d.get("theme"),
                          "timeline": items, "sights": day_sights(items),
                          **route_quality(items)})
+        kind_notes.extend(notes_kind)
 
     return {
         "plan_id": plan_id,
@@ -2290,7 +2349,10 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                     "failures": call_failures(ext),
                     # 裁掉的景点要留在产物里：前端与复盘都要能看出"模型写了 5 个、按每天 3 个的上限删了 2 个"，
                     # 而不是以为方案本来就只有 3 个。
-                    "sight_trim": [{"day": d, "name": n} for d, n in trimmed]},
+                    "sight_trim": [{"day": d, "name": n} for d, n in trimmed],
+                    # 餐宿类型存疑的条目：如实列出来，不静默改类型也不静默吞掉。
+                    # 空列表是常态（台账类别对得上时），有内容说明模型拿非餐厅当了饭点。
+                    "meal_lodging_kind_issues": kind_notes},
         "days": out_days,
         "degraded": False,
     }
