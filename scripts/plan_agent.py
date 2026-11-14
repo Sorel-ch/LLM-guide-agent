@@ -1877,7 +1877,55 @@ def route_quality(rows: list[dict]) -> dict:
             "route_note": note, "stops": len(kept)}
 
 
-def cap_day_sights(groups: list[dict], pois: dict) -> tuple[list[dict], list[tuple[int, str]]]:
+def _as_must_list(must_visit) -> list[str]:
+    if isinstance(must_visit, str):
+        must_visit = [must_visit]
+    return [str(m).strip() for m in (must_visit or []) if str(m).strip()]
+
+
+def _must_protected(sights: list[dict], musts: list[str], pois: dict,
+                    named: dict[str, dict]) -> set[str]:
+    """当天哪些条目算"用户点名的必去点"。
+
+    名字用 same_place（含"大熊猫"这类 ≥3 字共享）和互相包含判，另外按必去短语
+    解析出的坐标做 400 m 闭包——园内子点常不含母点全称（熊猫塔 vs 熊猫基地），
+    只靠名字会漏。闭包与 day_sights() 的同地点口径一致。
+    """
+    if not musts:
+        return set()
+    anchors = []
+    for m in musts:
+        coord = resolve_ref(m, pois)
+        if coord and "," in coord:
+            lon, lat = coord.split(",")
+            anchors.append({"lon": lon, "lat": lat})
+    out: set[str] = set()
+    for it in sights:
+        n = str(it.get("name") or "")
+        if not n:
+            continue
+        if any(same_place(n, m) or m in n or n in m for m in musts):
+            out.add(n)
+        elif anchors and n in named and any(
+                km_between(named[n], a) <= SAME_PLACE_MAX_KM for a in anchors):
+            out.add(n)
+    changed = True
+    while changed:                 # 同地点闭包：子点挂到已受保护的母点上
+        changed = False
+        for it in sights:
+            n = str(it.get("name") or "")
+            if not n or n in out:
+                continue
+            if any(same_place(n, p) or (n in named and p in named
+                   and km_between(named[n], named[p]) <= SAME_PLACE_MAX_KM) for p in out):
+                out.add(n)
+                changed = True
+    return out
+
+
+def cap_day_sights(groups: list[dict], pois: dict,
+                   must_visit: list[str] | None = None
+                   ) -> tuple[list[dict], list[tuple[int, str]], list[dict]]:
     """终稿成形后把每天的景点数压回 SIGHTS_MAX_PER_DAY（餐饮、住宿、交通段不计）。
     规则 2e 在 prompt 里写了"每天 2~3 个景点"，上海实测模型仍在 day2 写了 5 个 attraction、
     当天折返比 1.94——代码给的【建议顺序】本来就 3 站，多出来的是模型自己加的，
@@ -1888,12 +1936,14 @@ def cap_day_sights(groups: list[dict], pois: dict) -> tuple[list[dict], list[tup
     1.89/2.04/1.92——模型多写的那几个往往是同一片区里的近邻，按评分删掉它们，
     留下的就是散落全城的高分锚点。路径等长时才比评分。
     解析不出坐标的条目不参与比距离（无从比起），但照样占名额。
-    删掉的景点要把它两侧的交通段缝回相邻的两个留存点，
-    并且这一步必须排在 F 补腿之前：不这么做的话，删条目等于删折线
-    （上海实测同一天在裁之前 4 条线、裁完只剩 2 条）。
-    下限不在这里管：台账里根本没有的景点代码变不出来，只能由【建议顺序】那句提示交给模型。
+
+    **用户点名的必去点不参与裁**（成都实测：必去熊猫基地被当成第 4 个景点删掉，
+    方案主题还写着熊猫基地，实际一天全在城南公园）。必去点自身超过上限时全留，
+    非必去点让位，并在第三个返回值里记一条超限说明。
     """
+    musts = _as_must_list(must_visit)
     dropped: list[tuple[int, str]] = []
+    over_cap: list[dict] = []
     for g in groups:
         items = g["items"]
         sights = [it for it in items if (it.get("type") or "attraction") == "attraction"]
@@ -1914,17 +1964,42 @@ def cap_day_sights(groups: list[dict], pois: dict) -> tuple[list[dict], list[tup
             poi, _exact = ledger_lookup(n, pois)
             return _num((poi or {}).get("rating")) or 0.0
 
-        pool = list(named) + unknown
-        best = None
-        for combo in itertools.combinations(pool, SIGHTS_MAX_PER_DAY):
-            known = [n for n in combo if n in named]
-            # 比的是"这几个点走一遍要多少公里"，所以顺序由 open_path 现算：
-            # 直接按模型写的先后累加会把同一组点算出不同的长度
-            km = path_km(open_path(known, named), named) if len(known) > 1 else 0.0
-            score = (len(combo) - len(known), round(km, 2), -sum(rating(n) for n in combo))
-            if best is None or score < best[0]:
-                best = (score, set(combo))
-        keep = best[1] if best else {str(it.get("name") or "") for it in sights}
+        protected = _must_protected(sights, musts, pois, named)
+        keep: set[str]
+        if not protected:
+            # 没有必去点：原样走旧算法，保证既有方案的选择逐字不变。
+            pool = list(named) + unknown
+            best = None
+            for combo in itertools.combinations(pool, SIGHTS_MAX_PER_DAY):
+                known = [n for n in combo if n in named]
+                # 比的是"这几个点走一遍要多少公里"，所以顺序由 open_path 现算：
+                # 直接按模型写的先后累加会把同一组点算出不同的长度
+                km = path_km(open_path(known, named), named) if len(known) > 1 else 0.0
+                score = (len(combo) - len(known), round(km, 2),
+                         -sum(rating(n) for n in combo))
+                if best is None or score < best[0]:
+                    best = (score, set(combo))
+            keep = best[1] if best else {str(it.get("name") or "") for it in sights}
+        else:
+            fixed = [n for n in dict.fromkeys(list(named) + unknown) if n in protected]
+            if len(fixed) >= SIGHTS_MAX_PER_DAY:
+                keep = set(fixed)
+                if len(fixed) > SIGHTS_MAX_PER_DAY:
+                    over_cap.append({"day": g["day"], "limit": SIGHTS_MAX_PER_DAY,
+                                     "kept": fixed})
+            else:
+                rest = [n for n in dict.fromkeys(list(named) + unknown) if n not in protected]
+                slots = min(SIGHTS_MAX_PER_DAY - len(fixed), len(rest))
+                best = None
+                for combo in itertools.combinations(rest, slots):
+                    chosen = fixed + list(combo)
+                    known = [n for n in chosen if n in named]
+                    km = path_km(open_path(known, named), named) if len(known) > 1 else 0.0
+                    score = (len(chosen) - len(known), round(km, 2),
+                             -sum(rating(n) for n in chosen))
+                    if best is None or score < best[0]:
+                        best = (score, set(chosen))
+                keep = best[1] if best else set(fixed)
         gone = {str(it.get("name") or "") for it in sights if str(it.get("name") or "") not in keep}
         dropped += [(g["day"], n) for n in gone]
 
@@ -1960,7 +2035,7 @@ def cap_day_sights(groups: list[dict], pois: dict) -> tuple[list[dict], list[tup
             new_items.append(it)
             prev, leg_after_prev = name, True
         g["items"] = new_items
-    return groups, dropped
+    return groups, dropped, over_cap
 
 
 def split_leg_names(it: dict) -> list[str]:
@@ -2345,7 +2420,8 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
     # 每天景点数压回上限。正常路径这步在 run_plan 里、F 补腿之前就做了
     # （被删景点两侧新缝的腿要赶得上补测），这里再跑一遍是幂等的兜底：
     # 模型把 N 天全塞进一天时要先等 chunk_days 分完才知道每天几条，还有直接调用本函数的用法。
-    groups, trimmed_local = cap_day_sights(groups, ext["pois"])
+    groups, trimmed_local, cap_notes_local = cap_day_sights(
+        groups, ext["pois"], needs.get("must_visit"))
     trimmed = (pre_trimmed or []) + trimmed_local
     origin_token = ((needs.get("origin_city") or needs.get("origin") or "")
                     if needs.get("intercity") else "")[:2]
@@ -2432,6 +2508,8 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                     # 裁掉的景点要留在产物里：前端与复盘都要能看出"模型写了 5 个、按每天 3 个的上限删了 2 个"，
                     # 而不是以为方案本来就只有 3 个。
                     "sight_trim": [{"day": d, "name": n} for d, n in trimmed],
+                    # 必去点自身超过每日上限时的放行说明；非必去点让位不进这里。
+                    "sight_cap_notes": cap_notes_local,
                     # 餐宿类型存疑的条目：如实列出来，不静默改类型也不静默吞掉。
                     # 空列表是常态（台账类别对得上时），有内容说明模型拿非餐厅当了饭点。
                     "meal_lodging_kind_issues": kind_notes},
@@ -2598,7 +2676,12 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
         pre_trim: list[tuple[int, str]] = []
         solver_trace: list[dict] = []
         if pre:
-            pre, pre_trim = cap_day_sights(pre, ext["pois"])
+            pre, pre_trim, pre_cap_notes = cap_day_sights(
+                pre, ext["pois"], needs.get("must_visit"))
+            if pre_cap_notes:
+                mark("   必去点      " + "；".join(
+                    f"day{n['day']} 保留 {len(n['kept'])} 个（上限 {n['limit']}）"
+                    for n in pre_cap_notes))
             # 求解器重排（T4）：**必须排在 cap_day_sights 之后**——先裁到每天 3 站，
             # 再排那 3 站的先后；反过来会把已被裁掉的点也排进去，等于绕过上限。
             # 也排在补腿之前：顺序定了，补腿才知道要补哪几对相邻段。
