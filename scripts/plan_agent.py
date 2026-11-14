@@ -121,6 +121,15 @@ SYSTEM_EXTRACT = (
       "不要输出 JSON 以外的任何字符。"
 )
 
+# 餐点时段规则：宁波/成都实测，一日游草案会把午饭当首站（11:05），
+# 两顿正餐挤在下午且只隔 2 小时。prompt 里明写规则，代码侧另有
+# check_meal_timing() 兜底记录——只记录，不改模型的时间。
+MEAL_TIMING_RULE = (
+    "2f. 餐点时间：每天的首站不要排成正餐（早餐除外），上午要有一站；"
+    "两顿正餐至少间隔 4 小时：午餐 11:30–13:30、晚餐 17:30–19:30，"
+    "不要把两顿都排在下午；\n"
+)
+
 SYSTEM_PLAN = (
     # ④防编造三条与⑤预算两行制已删；只保留⑥（紧凑格式与字数上限）。
     "你是行程规划器。依据后面给出的【知识库】【实时数据】输出当天方案，要求：\n"
@@ -135,6 +144,7 @@ SYSTEM_PLAN = (
     "不许把后面某天的点抓到当天再折回去；确有理由偏离就在该行末写一句为什么；\n"
     "2e. 每天 2~3 个景点（餐饮、住宿、往返段不计入）：建议给少了就从【POI】本市条目补、给多了砍掉；"
     "最后一天哪怕要返程也排到发车前，不许留半天空档；\n"
+    + MEAL_TIMING_RULE +
     f"3. 总长不超过 {PLAN_CHAR_LIMIT} 字：每段一行可以短，但题目要求的内容类别（景点、餐饮、住宿、往返）"
     "都要各自出现。\n"
 )
@@ -181,6 +191,7 @@ SYSTEM_PLAN_JSON = (
     "2e. 每天的 type=attraction 要占满 2~3 条（餐饮、住宿、交通段不计入）：【建议顺序】给少了"
     "就从【POI】里 类=风景名胜/科教文化 的条目补齐，最后一天哪怕要返程也排到发车前，"
     "不许留半天空档；\n"
+    + MEAL_TIMING_RULE +
     "3. 交通段 name 写 '甲→乙'，transport 写方式与耗时；没有任何实测数据时 transport 写\"交通待核实\"；\n"
     "4. cost 只填有依据的数字（单位元）：【POI】【路段】或【网页摘要】里给过的才填，免费填 0，"
     "查不到就填 null，不许估算；【POI】里的人均是消费水平不是门票价，"
@@ -1678,6 +1689,74 @@ def check_meal_lodging_kind(row: dict, poi: dict | None) -> str | None:
     return f"台账类别是「{kind or '未给'}」，不是住宿服务"
 
 
+# 餐点时段校验（只记录、不改模型的时间）。
+# 宁波实测：一日游首站直接是 11:05 的午饭，两顿正餐只隔 2 小时（11:10 / 14:45）；
+# 成都同理。prompt 的 2f 已明写规则，这里把违反项如实记进 sources 并挂到条目 tip。
+MEAL_LUNCH_WINDOW = (10 * 60 + 30, 14 * 60 + 30)
+MEAL_DINNER_WINDOW = (17 * 60, 20 * 60 + 30)
+MEAL_GAP_MIN = 4 * 60            # 两顿正餐至少隔 4 小时
+DAY_START_LATEST = 10 * 60       # 首站晚于 10:00 视为上午空置
+
+
+def _minutes_text(minutes: int) -> str:
+    return (f"{minutes // 60} 小时 {minutes % 60} 分" if minutes % 60
+            else f"{minutes // 60} 小时")
+
+
+def _in_meal_window(minute: int) -> bool:
+    return any(lo <= minute <= hi for lo, hi in (MEAL_LUNCH_WINDOW, MEAL_DINNER_WINDOW))
+
+
+def check_meal_timing(rows: list[dict]) -> list[str]:
+    """检查吃饭时间像不像一顿正餐；只返回说明并把提示挂到 tip，不改 start_time。
+
+    `rows` 用终稿的 timeline（此时时间轴已按重排回填）；没有可解析时间的条目跳过。
+    判据三条：首站不是正餐（早餐除外）、两顿正餐隔 ≥4 小时、落在午餐/晚餐时段。
+    """
+    meals = [(s, r) for r in rows if r.get("type") == "meal"
+             and (s := _hhmm_min(r.get("start_time"))) is not None]
+    if not meals:
+        return []
+    notes: list[str] = []
+    tips: dict[int, list[str]] = {}
+
+    def flag(row: dict, short: str, long: str) -> None:
+        notes.append(long)
+        tips.setdefault(id(row), []).append(short)
+
+    first = next((r for r in rows if r.get("type") != "transit"), None)
+    first_start = _hhmm_min((first or {}).get("start_time"))
+    if first_start is not None and first_start > DAY_START_LATEST:
+        if first and first.get("type") == "meal":
+            flag(first, "首站是餐饮，上午空置",
+                 f"首站是餐饮「{first.get('name')}」（{first.get('start_time')}），上午空置")
+        else:
+            notes.append(f"首站 {first.get('start_time')} 才开始，上午空置")
+
+    meals.sort(key=lambda x: x[0])
+    for (prev_s, prev_r), (cur_s, cur_r) in zip(meals, meals[1:]):
+        gap = cur_s - prev_s
+        if gap < MEAL_GAP_MIN:
+            notes.append(
+                f"两顿正餐间隔 {_minutes_text(gap)}（{prev_r.get('name')} "
+                f"{prev_r.get('start_time')} → {cur_r.get('name')} {cur_r.get('start_time')}）")
+            for row in (prev_r, cur_r):
+                tips.setdefault(id(row), []).append("距上一顿正餐不足 4 小时")
+
+    for s, row in meals:
+        # 10:30 之前的算早餐，不套午/晚餐时段；其余落在两段之外才提示。
+        if s >= MEAL_LUNCH_WINDOW[0] and not _in_meal_window(s):
+            flag(row, "不在午餐/晚餐时段",
+                 f"「{row.get('name')}」{row.get('start_time')} 不在午餐/晚餐时段")
+
+    for row in rows:
+        shorts = tips.get(id(row))
+        if shorts:
+            row["tip"] = (str(row.get("tip") or "").strip("，。； ")
+                          + "｜餐点提示：" + "；".join(dict.fromkeys(shorts))).lstrip("｜")
+    return notes
+
+
 def ledger_lookup(name: str, pois: dict) -> tuple[dict | None, bool]:
     """模型写的条目名回查高德台账，返回 (条目, 是否精确)。
 
@@ -2427,6 +2506,7 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                     if needs.get("intercity") else "")[:2]
     out_days = []
     kind_notes: list[str] = []      # 餐宿类型存疑条目（T5），跨天汇总进 sources
+    meal_notes: list[str] = []      # 餐点时段可疑条目，同样如实汇总进 sources
     for d in groups:
         items = []
         notes_kind: list[str] = []
@@ -2485,6 +2565,7 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                                       else "missing")
             normalize_people_tip(row)
             items.append(row)
+        meal_notes.extend(f"day{d['day']}：{n}" for n in check_meal_timing(items))
         date = (datetime.strptime(start, "%Y-%m-%d") + timedelta(days=d["day"] - 1)).strftime("%Y-%m-%d")
         out_days.append({"day": d["day"], "date": date, "theme": d.get("theme"),
                          "timeline": items, "sights": day_sights(items),
@@ -2512,7 +2593,10 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                     "sight_cap_notes": cap_notes_local,
                     # 餐宿类型存疑的条目：如实列出来，不静默改类型也不静默吞掉。
                     # 空列表是常态（台账类别对得上时），有内容说明模型拿非餐厅当了饭点。
-                    "meal_lodging_kind_issues": kind_notes},
+                    "meal_lodging_kind_issues": kind_notes,
+                    # 餐点时段（首站是餐饮 / 两顿太近 / 不在午晚餐时段）：只提示，
+                    # 不改模型定的时间；具体条目同时在 tip 里标「餐点提示」。
+                    "meal_timing_issues": meal_notes},
         "days": out_days,
         "degraded": False,
     }
