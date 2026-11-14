@@ -124,7 +124,55 @@ def main() -> int:
     # 交通段一条都不能丢：早先只把 meal/hotel 收进重建列表，重排后当天一条腿都不剩。
     check("交通段一条都没丢", len(kinds), 3, "重排不能吞腿")
 
-    print("\n-- 7. 求解失败时整份回退，不做部分替换 --")
+    print("\n-- 7. 重写交通段：首条腿保留原起点（到达枢纽不能丢） --")
+    lead = [{"type": "transit", "name": "成都东站→成都大熊猫繁育研究基地"},
+            {"type": "attraction", "name": "熊猫塔"},
+            {"type": "attraction", "name": "成都大熊猫繁育研究基地"}]
+    spliced = pa._resplice_transits(lead)
+    check("首条腿起点仍是到达枢纽", spliced[0]["name"], "成都东站→熊猫塔")
+    mid = pa._resplice_transits([
+        {"type": "attraction", "name": "熊猫塔"},
+        {"type": "transit", "name": "熊猫基地→熊猫塔"},
+        {"type": "attraction", "name": "熊猫基地"}])
+    check("站间腿按新相邻关系重写", mid[1]["name"], "熊猫塔→熊猫基地")
+    tail = pa._resplice_transits([
+        {"type": "attraction", "name": "熊猫塔"},
+        {"type": "transit", "name": "旧点→酒店"}])
+    check("末段终点仍是酒店", tail[1]["name"], "熊猫塔→酒店")
+
+    print("\n-- 8. 重排后时间轴回填：时间单调、留白不被压缩 --")
+    items = [
+        {"type": "transit", "name": "成都东站→熊猫塔", "start_time": "07:30",
+         "end_time": "08:45", "_t_gap": 0, "_t_dur": 75},
+        {"type": "attraction", "name": "熊猫塔", "start_time": "12:20",
+         "end_time": "13:00", "_t_gap": 0, "_t_dur": 40},
+        {"type": "attraction", "name": "熊猫基地", "start_time": "08:45",
+         "end_time": "11:30", "_t_gap": 0, "_t_dur": 165},
+        {"type": "attraction", "name": "熊猫博物馆", "start_time": "11:30",
+         "end_time": "12:20", "_t_gap": 0, "_t_dur": 50},
+        {"type": "transit", "name": "博物馆→午饭", "start_time": "13:00",
+         "end_time": "14:30", "_t_gap": 0, "_t_dur": 90},
+        {"type": "meal", "name": "午饭", "start_time": "14:30", "end_time": "15:30",
+         "_t_gap": 0, "_t_dur": 60},
+        {"type": "transit", "name": "午饭→晚饭", "start_time": None, "end_time": None,
+         "_t_gap": 0, "_t_dur": 15},
+        {"type": "meal", "name": "晚饭", "start_time": "19:00", "end_time": "20:30",
+         "_t_gap": 210, "_t_dur": 90},
+        {"type": "transit", "name": "晚饭→东站", "start_time": "20:30",
+         "end_time": "21:00", "_t_gap": 0, "_t_dur": 30},
+        {"type": "hotel", "name": "酒店", "start_time": None, "end_time": None,
+         "_t_gap": 0, "_t_dur": None},
+    ]
+    pa._retime_items(items, 7 * 60 + 30)
+    check("时间随新顺序严格递增",
+          [i["start_time"] for i in items],
+          ["07:30", "08:45", "09:25", "12:10", "13:00",
+           "14:30", "15:30", "19:15", "20:45", None])
+    check("晚饭留白保留", items[7]["start_time"], "19:15")
+    check("临时字段已清掉", any("_t_gap" in i or "_t_dur" in i for i in items), False)
+    check("无时长的住宿原样保留", items[-1]["start_time"], None)
+
+    print("\n-- 9. 求解失败时整份回退，不做部分替换 --")
     bad_day = {"day": 2, "items": [
         {"type": "attraction", "name": "幽灵点"},
         {"type": "attraction", "name": "月湖"},

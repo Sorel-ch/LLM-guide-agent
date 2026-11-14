@@ -2121,13 +2121,73 @@ def _resplice_transits(items: list[dict]) -> list[dict]:
                 end = str(items[j].get("name") or "")
                 break
         parts = [p.strip() for p in str(it.get("name") or "").split("→")]
+        old_start = parts[0] if len(parts) == 2 else ""
         old_end = parts[1] if len(parts) == 2 else ""
         if end is None:
             # 当日最后一条腿：终点沿用原文（通常是酒店），起点跟到最后一个实体
-            out.append({**it, "name": f"{start or old_end}→{old_end}"} if start else it)
+            out.append({**it, "name": f"{start}→{old_end}"} if start and old_end else it)
         else:
-            out.append({**it, "name": f"{start or old_end}→{end}"})
+            # 首条腿前面没有实体（当天从枢纽/酒店出发）时，起点保留**原文的起点**。
+            # 用 old_end 兜底实测把「成都东站→熊猫基地」改成了「熊猫基地→熊猫塔」，
+            # 到达枢纽直接从方案里消失；终点则照常跟到新的首站。
+            out.append({**it, "name": f"{start or old_start or old_end}→{end}"})
     return out
+
+
+# ── 重排后的时间轴回填 ────────────────────────────────────────────────
+# 求解器只返回景点先后；它的 schedule 是 0 服务时长、06:00-24:00 的模型时间，
+# 不能直接当行程时刻用。重排后条目仍带着草案的 start_time/end_time 原样搬家，
+# 页面就会出现「12:20 的熊猫塔排在 08:45 的基地前面」（成都 2026-11-14 实测）。
+# 这里按新顺序重走一遍：每条保留它原本的时长，条目之间的留白也跟着条目走，
+# 所以晚饭不会被压缩到下午。
+RETIME_DEFAULT_MIN = {"attraction": 90, "meal": 60}
+RETIME_TRANSIT_MIN = 15
+
+
+def _hhmm_min(value) -> int | None:
+    m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", str(value or ""))
+    if not m:
+        return None
+    h, mm = int(m.group(1)), int(m.group(2))
+    return h * 60 + mm if 0 <= h <= 23 and 0 <= mm <= 59 else None
+
+
+def _min_hhmm(minutes: int) -> str:
+    minutes = max(0, min(int(minutes), 23 * 60 + 59))
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def _item_minutes(it: dict, pois: dict, legs: list[dict]) -> int | None:
+    start, end = _hhmm_min(it.get("start_time")), _hhmm_min(it.get("end_time"))
+    drafted = end - start if start is not None and end is not None and end > start else None
+    kind = it.get("type") or "attraction"
+    if kind == "transit":
+        leg = match_leg(str(it.get("name") or ""), legs, pois)
+        if leg and leg.get("minutes"):
+            return max(1, int(leg["minutes"]))
+        return drafted or RETIME_TRANSIT_MIN
+    return drafted or RETIME_DEFAULT_MIN.get(kind)
+
+
+def _retime_items(items: list[dict], day_start: int) -> None:
+    """按列表顺序重写时间；读 `_t_gap`/`_t_dur` 两个临时字段并即刻删掉。
+
+    没有时长的条目（住宿、解析不出的行）原样保留，游标只在能解析出时刻时前移，
+    不替模型编造时间。
+    """
+    cursor = day_start
+    for it in items:
+        gap = int(it.pop("_t_gap", 0) or 0)
+        dur = it.pop("_t_dur", None)
+        if dur is None:
+            s, e = _hhmm_min(it.get("start_time")), _hhmm_min(it.get("end_time"))
+            if s is not None:
+                cursor = max(cursor, e if e is not None else s)
+            continue
+        cursor += gap
+        it["start_time"] = _min_hhmm(cursor)
+        it["end_time"] = _min_hhmm(cursor + int(dur))
+        cursor += int(dur)
 
 
 def reorder_day_with_solver(groups: list[dict], pois: dict, legs: list[dict],
@@ -2166,6 +2226,27 @@ def reorder_day_with_solver(groups: list[dict], pois: dict, legs: list[dict],
         if len(new_order) != len(sights):
             return groups, [{"day": g.get("day"), "ok": False,
                              "reason": "重排后景点数不一致，整份回退"}]
+        # 求解器可能原样返回：顺序没变就不重建、不动时间，健康方案逐字不变。
+        if ([str(s.get("name") or "") for s in new_order]
+                == [str(s.get("name") or "") for s in sights]):
+            out.append(g)
+            continue
+        # 重建前先按**原顺序**记下每条的时间预算：前面留白 + 本条时长。
+        # 时长优先用实测 legs 的 minutes；留白跟着条目走，晚饭这类刻意的空档才不会
+        # 被压缩到下午。临时字段在 _retime_items 里随用随删。
+        prev_end = None
+        earliest = None
+        for it in g["items"]:
+            s, e = _hhmm_min(it.get("start_time")), _hhmm_min(it.get("end_time"))
+            if s is not None:
+                earliest = s if earliest is None else min(earliest, s)
+            it["_t_gap"] = max(0, s - prev_end) if (s is not None and prev_end is not None) else 0
+            it["_t_dur"] = _item_minutes(it, pois, legs)
+            if e is not None:
+                prev_end = e
+            elif s is not None:
+                prev_end = s
+        day_start = earliest if earliest is not None else 9 * 60
         # 非景点条目（餐宿、交通段）按「原本跟在第几个景点后面」归位：
         # 求解器只决定景点的先后，不决定餐宿插在哪、也不决定哪条腿属于哪一段。
         # 交通段必须一起收进来——早先只收 meal/hotel，重建时把腿整批丢了，
@@ -2187,6 +2268,7 @@ def reorder_day_with_solver(groups: list[dict], pois: dict, legs: list[dict],
         # 「顺序是 A→B→C、腿却还写着 B→A」——plan_leg_topup 与 match_leg 都按名字/端点解析，
         # 等于拿旧腿配新序，补测的也是错的那一对。
         rebuilt = _resplice_transits(rebuilt)  # 交通段按新相邻关系重写 OD
+        _retime_items(rebuilt, day_start)      # 时间轴跟新顺序重走一遍
         out.append({**g, "items": rebuilt})
     return out, [{"day": pl["day"], "ok": True, "order": pl["order"],
                   "stats": pl.get("stats")} for pl in plan]

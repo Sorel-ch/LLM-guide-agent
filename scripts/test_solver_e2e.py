@@ -52,22 +52,22 @@ def main() -> int:
     }
     groups = [
         {"day": 1, "items": [
-            {"type": "transit", "name": "南京南站→浦口公园"},
-            {"type": "attraction", "name": "浦口公园"},
-            {"type": "meal", "name": "南京大牌档"},
-            {"type": "transit", "name": "浦口公园→南京石头城遗址公园"},
-            {"type": "attraction", "name": "南京石头城遗址公园"},
-            {"type": "transit", "name": "南京石头城遗址公园→桑启民宿"},
-            {"type": "hotel", "name": "桑启民宿"},
+            {"type": "transit", "name": "南京南站→浦口公园", "start_time": "08:00", "end_time": "08:40"},
+            {"type": "attraction", "name": "浦口公园", "start_time": "08:40", "end_time": "09:40"},
+            {"type": "meal", "name": "南京大牌档", "start_time": "09:40", "end_time": "10:40"},
+            {"type": "transit", "name": "浦口公园→南京石头城遗址公园", "start_time": "10:40", "end_time": "11:10"},
+            {"type": "attraction", "name": "南京石头城遗址公园", "start_time": "11:10", "end_time": "12:10"},
+            {"type": "transit", "name": "南京石头城遗址公园→桑启民宿", "start_time": "12:10", "end_time": "12:30"},
+            {"type": "hotel", "name": "桑启民宿", "start_time": "21:00", "end_time": "22:00"},
         ]},
         {"day": 2, "items": [
-            {"type": "transit", "name": "桑启民宿→金陵兵工厂旧址"},
-            {"type": "attraction", "name": "金陵兵工厂旧址"},
-            {"type": "transit", "name": "金陵兵工厂旧址→中山陵景区"},
-            {"type": "attraction", "name": "中山陵景区"},
-            {"type": "meal", "name": "南京大牌档"},
-            {"type": "transit", "name": "中山陵景区→钟山风景名胜区"},
-            {"type": "attraction", "name": "钟山风景名胜区"},
+            {"type": "transit", "name": "桑启民宿→金陵兵工厂旧址", "start_time": "09:00", "end_time": "09:30"},
+            {"type": "attraction", "name": "金陵兵工厂旧址", "start_time": "09:30", "end_time": "10:30"},
+            {"type": "transit", "name": "金陵兵工厂旧址→中山陵景区", "start_time": "10:30", "end_time": "11:00"},
+            {"type": "attraction", "name": "中山陵景区", "start_time": "11:00", "end_time": "13:00"},
+            {"type": "meal", "name": "南京大牌档", "start_time": "13:00", "end_time": "14:00"},
+            {"type": "transit", "name": "中山陵景区→钟山风景名胜区", "start_time": "14:00", "end_time": "14:20"},
+            {"type": "attraction", "name": "钟山风景名胜区", "start_time": "14:20", "end_time": "16:00"},
         ]},
     ]
     before = [strip(g["items"]) for g in groups]
@@ -95,7 +95,17 @@ def main() -> int:
               sum(1 for x in a if x["type"] == "transit"),
               sum(1 for x in b if x["type"] == "transit"))
 
-    print("\n-- 4. 求解器状态如实反映在 trace 里 --")
+    print("\n-- 4. 重排后时间轴连贯、首条腿不丢出发地 --")
+    for i, g in enumerate(out, 1):
+        starts = [pa._hhmm_min(x.get("start_time")) for x in g["items"]]
+        check(f"day{i} 每条都有可解析时间", all(s is not None for s in starts), True)
+        check(f"day{i} 时间单调不倒退",
+              all(b >= a for a, b in zip(starts, starts[1:])), True, f"{starts}")
+    first2 = out[1]["items"][0]
+    check("day2 首条腿仍从住宿出发", first2["name"].split("→")[0], "桑启民宿",
+          f"实际 {first2['name']}")
+
+    print("\n-- 5. 求解器状态如实反映在 trace 里 --")
     asked, why = pa._solver_available()
     print(f"       本机求解器可用={asked} {why}")
     if trace:
