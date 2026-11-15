@@ -280,6 +280,20 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --
 - API 契约与逐条实测校准记在 `docs/frontend-plan.md`（第 3/4/5/7 节），改前端前先读它；
   2026-10-20 的视觉重构已替换该文档第 4 节的旧配色与布局，以 `webapp/static/style.css` 为准。
 
+## 基准评测（可选，scripts/chinatravel_eval/）
+
+ChinaTravel 评测适配层，**只在外部 Python 3.12 工作区运行，不进入产品 import 链**。
+
+- 代码在 `scripts/chinatravel_eval/`，入口 `scripts/eval_chinatravel.py`；ChinaTravel clone、
+  sandbox、3.12 venv 与 runs 默认放 `E:\code\chinatravel-eval`，一律不入库。
+- 规划只读 `nature_language` + sandbox 台账；`hard_logic_py` 只用于官方评分，
+  **不喂给模型、不用于修复**。主榜是 `nl_only`，结构化约束版本只能单列对照。
+- 不要改官方仓库源码。HF `easy` split 的 `hard_logic_py` 是字符串，官方 loader 会报错；
+  正确处理是导出本地 split（`chinatravel/data/<local_split>/` + `default_splits/<local_split>.txt`），
+  且 local split 名不能落在官方 HF split 集合里。
+- 适配层不写 `wiki/`、`raw/`；评测产物留在外部工作区，不提交。
+- 环境搭建、命令、分数与已知坑见 `docs/chinatravel-eval.md`。
+
 ## Lint（只读核查）
 
 触发：用户要求"检查知识库"，或某页面被 Query 使用时发现存疑字段。

@@ -134,6 +134,17 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/lint_wiki.py
 （`TRAVEL_DEDUP_TTL=0` 关闭），命中时标 `meta.reused_call`。Key 由服务启动时从仓库根 `.env` 读取，
 `.mcp.json` 里不落密钥。宿主若不是从仓库根启动，把 `command` 改成 `.venv` 解释器的绝对路径即可。
 
+## 基准评测（可选）
+
+`scripts/chinatravel_eval/` 是 [ChinaTravel](https://github.com/LAMDA-NeSy/ChinaTravel) 基准的评测适配层，
+**不进入产品管线**。它让规划器在官方 sandbox 内取数、按官方 schema 出方案，再用官方
+`eval_tpc.py` 跑 schema / commonsense / 硬约束 / 偏好分。LLM 只负责选点，时间、交通段、
+金额与城际车次由代码生成。
+
+评测需要 Python 3.12、官方仓库与 sandbox，全部放在外部工作区（默认 `E:\code\chinatravel-eval`），
+不污染本仓库 `.venv`、`wiki/`、`raw/`。搭建、命令、口径（规划只读 `nature_language`，
+`hard_logic_py` 只评分不喂模型）与实测分数见 [docs/chinatravel-eval.md](docs/chinatravel-eval.md)。
+
 ## 知识库的边界
 
 - **`raw/` 只增不改不删**：API 返回与网页原文以快照保存，文件名
