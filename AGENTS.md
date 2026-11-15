@@ -288,6 +288,10 @@ ChinaTravel 评测适配层，**只在外部 Python 3.12 工作区运行，不�
   sandbox、3.12 venv 与 runs 默认放 `E:\code\chinatravel-eval`，一律不入库。
 - 规划只读 `nature_language` + sandbox 台账；`hard_logic_py` 只用于官方评分，
   **不喂给模型、不用于修复**。主榜是 `nl_only`，结构化约束版本只能单列对照。
+- native 直测走 `plan_agent.run_plan` 的原始题目路径（`clarify_first=False`，让 agent 自己抽取），
+  `final_plan` 按“名字精确 → 唯一子串 → 坐标最近”映射回 sandbox（景点/酒店 3 km、餐厅 1.5 km，
+  餐厅有菜系偏好时先找同菜系）。它仍由 sandbox 重算时间与金额，只测 agent 的选点/顺序/分天，
+  必须与闭环结果分开列；映射覆盖率与替换距离看 `meta.plan_meta.native.mapping`。
 - 不要改官方仓库源码。HF `easy` split 的 `hard_logic_py` 是字符串，官方 loader 会报错；
   正确处理是导出本地 split（`chinatravel/data/<local_split>/` + `default_splits/<local_split>.txt`），
   且 local split 名不能落在官方 HF split 集合里。
