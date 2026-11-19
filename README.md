@@ -5,8 +5,8 @@
 
 ## 现在的形态
 
-- **网页版是主入口**：多轮对话问清五项（目的地 / 起点 / 时间 / 预算 / 偏好）→ 固定顺序取数 →
-  地图 + 逐日时间线 + 历史记录。见 [webapp/](webapp/)。
+- **网页版是主入口**：多轮对话问清五项（目的地 / 起点 / 时间 / 预算 / 偏好）→ 候选策展与确定性排程 →
+  地图 + 逐日时间线 + 分类预算 + 修订编辑 + 导出。见 [webapp/](webapp/) 与 [v2 重构说明](docs/refactor-v2.md)。
 - **命令行可直接跑管线**（[scripts/plan_agent.py](scripts/plan_agent.py)）：支持交互追问、
   离线预演、`--json` 结构化输出，单题通常 20–40 秒。
 - **不依赖 Cline 或其他外部 agent 客户端**：澄清、取数顺序、模型调用、结果落盘都在本仓库内完成。
@@ -98,6 +98,8 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/plan_agent.py "从杭�
 | `--skip-llm` | 只跑到取数阶段，检查注入模型的上下文 |
 | `--json` | 出结构化 `final_plan` 并落 `.cache/plans/` |
 | `--needs '<JSON>'` | 跳过抽取，直接给需求 |
+| `--pipeline curated` | 默认：一次候选策展 + 代码排程/校验 |
+| `--pipeline legacy` | 旧全文生成管线，仅作对照 |
 | `--answer '…'` | 回答上一轮追问（可重复）；脚本里配 `--no-prompt` 使用 |
 | `--no-clarify` | 关掉追问闸门，按默认值直接规划 |
 

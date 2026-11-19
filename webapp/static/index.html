@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>行程规划 · 有据可查的旅行计划</title>
-<link rel="stylesheet" href="style.css?v=2026-10-19g">
+<link rel="stylesheet" href="style.css?v=2026-11-19b">
 </head>
 <body>
 <div class="ambient" aria-hidden="true"></div>
@@ -225,6 +225,15 @@
         </div>
       </div>
       <div id="plan-chips" class="chips"></div>
+      <div class="plan-actions">
+        <button class="ghost" id="edit-plan" type="button">编辑行程</button>
+        <button class="primary" id="save-plan" type="button" hidden>保存修订</button>
+        <button class="ghost" id="cancel-edit" type="button" hidden>取消</button>
+        <button class="ghost" id="export-json" type="button">导出 JSON</button>
+        <button class="ghost" id="export-image" type="button">导出图片</button>
+        <button class="ghost" id="export-pdf" type="button">打印 / PDF</button>
+      </div>
+      <p id="edit-note" class="meta" hidden>移动或删除在本地重算，保存为新修订；改顺序后路线需重新实测。</p>
     </div>
 
     <section id="map-block" class="panel map-block" hidden>
@@ -238,6 +247,9 @@
       </div>
       <div id="map-canvas"></div>
     </section>
+
+    <section id="budget" class="panel budget" hidden></section>
+    <section id="quality" class="panel quality" hidden></section>
 
     <div id="days"></div>
 
@@ -256,6 +268,8 @@
   <span class="legend"><i class="dot u"></i>待核实：本次现查或没取到，只对当场有效</span>
 </footer>
 
-<script src="app.js?v=2026-10-19g"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" defer></script>
+<script src="app.js?v=2026-11-19c"></script>
+<script src="export.js?v=2026-11-19a"></script>
 </body>
 </html>

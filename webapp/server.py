@@ -26,6 +26,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO_ROOT / "scripts"
 PLANS_DIR = REPO_ROOT / ".cache" / "plans"
 CHATS_DIR = REPO_ROOT / ".cache" / "chats"
+REVISIONS_DIR = REPO_ROOT / ".cache" / "revisions"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 import secrets
@@ -54,6 +55,11 @@ CHAT_EXECUTOR = cf.ThreadPoolExecutor(max_workers=2)
 JOB_TIMEOUT = 240        # 秒；一次规划实测 8~20 秒，留足补查轮与网络抖动的余量
 JOBS: dict[str, dict] = {}
 JOB_LOCK = asyncio.Lock()
+
+
+class RevisionRequest(BaseModel):
+    base_revision: int = Field(ge=0)
+    operations: list[dict] = Field(min_length=1, max_length=100)
 
 
 class PlanRequest(BaseModel):
@@ -106,7 +112,7 @@ def run_job(job: dict) -> None:
             max_external=MAX_EXTERNAL_WEB,
             quiet=True,
             dry_run=job["offline"],
-            on_stage=lambda line: job["stages"].append(line),
+            on_stage=lambda event: job["stages"].append(event["message"]) or job["events"].append(event),
         )
     except SystemExit as exc:      # run_plan 缺 key 时用 SystemExit 说话
         job["state"] = "error"
@@ -158,7 +164,7 @@ async def api_plan(req: PlanRequest) -> dict:
         if not job:
             job = {"id": key, "question": req.question.strip(), "date": req.date,
                    "needs": req.needs, "turns": req.turns,
-                   "offline": req.offline, "state": "queued", "stages": [],
+                   "offline": req.offline, "state": "queued", "stages": [], "events": [],
                    "created": datetime.now().isoformat(timespec="seconds"),
                    "created_ts": time.perf_counter(), "started": None, "future": None,
                    "seconds": None, "result": None, "error": None, "plan_file": None}
@@ -195,6 +201,7 @@ def _status_body(job: dict) -> dict:
     if job["state"] in ("queued", "running"):
         elapsed = round(time.perf_counter() - job["created_ts"], 1)
     return {"job_id": job["id"], "state": job["state"], "stages": list(job["stages"]),
+            "events": list(job["events"]),
             "question": job["question"], "offline": job["offline"],
             "elapsed": elapsed, "seconds": job["seconds"], "error": job["error"],
             "result_url": f"/api/plan/{job['id']}" if job["state"] == "done" else None}
@@ -337,7 +344,58 @@ async def api_plan_detail(plan_id: str) -> dict:
     path = plan_path(plan_id)
     if not path.exists():
         raise HTTPException(404, f".cache/plans/{plan_id}.json 不存在")
-    return json.loads(path.read_text(encoding="utf-8"))
+    from planning.budget import enrich_plan
+    latest = REVISIONS_DIR / plan_id / "latest.json"
+    if latest.exists():
+        revision = int(json.loads(latest.read_text(encoding="utf-8"))["revision"])
+        target = REVISIONS_DIR / plan_id / f"{revision}.json"
+        if target.exists():
+            return enrich_plan(json.loads(target.read_text(encoding="utf-8")))
+    return enrich_plan(json.loads(path.read_text(encoding="utf-8")))
+
+
+@app.get("/api/plans/{plan_id}/revisions/{revision}")
+async def api_revision_detail(plan_id: str, revision: int) -> dict:
+    base = plan_path(plan_id)
+    if not base.exists():
+        raise HTTPException(404, "原方案不存在")
+    raw = json.loads(base.read_text(encoding="utf-8"))
+    if revision == 0:
+        from planning.budget import enrich_plan
+        return enrich_plan(raw)
+    target = (REVISIONS_DIR / plan_id / f"{revision}.json").resolve()
+    if (REVISIONS_DIR / plan_id).resolve() not in target.parents:
+        raise HTTPException(400, "revision 路径不合法")
+    if not target.exists():
+        raise HTTPException(404, "该修订不存在")
+    return json.loads(target.read_text(encoding="utf-8"))
+
+
+@app.put("/api/plans/{plan_id}/revisions")
+async def api_revise_plan(plan_id: str, req: RevisionRequest) -> dict:
+    from planning.itinerary import RevisionConflict, revise_plan
+    path = plan_path(plan_id)
+    if not path.exists():
+        raise HTTPException(404, "原方案不存在")
+    target_dir = REVISIONS_DIR / plan_id
+    latest = target_dir / "latest.json"
+    current_revision = int(json.loads(latest.read_text(encoding="utf-8"))["revision"]) if latest.exists() else 0
+    if req.base_revision != current_revision:
+        raise HTTPException(409, f"当前版本为 {current_revision}，请求基于 {req.base_revision}")
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if req.base_revision:
+        raw = await api_revision_detail(plan_id, req.base_revision)
+    try:
+        revised = revise_plan(raw, req.base_revision, req.operations)
+    except RevisionConflict as exc:
+        raise HTTPException(409, str(exc))
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(422, f"编辑无效：{exc}")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    (target_dir / f"{revised['revision']}.json").write_text(
+        json.dumps(revised, ensure_ascii=False, indent=2), encoding="utf-8")
+    latest.write_text(json.dumps({"revision": revised["revision"]}), encoding="utf-8")
+    return revised
 
 
 if STATIC_DIR.exists():

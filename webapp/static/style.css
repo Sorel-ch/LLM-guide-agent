@@ -1256,8 +1256,33 @@ input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px 
   .sources { padding: 16px; }
 }
 
+.plan-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.budget h2 small { font-size: 12px; font-weight: 400; color: var(--ink-3); margin-left: 8px; }
+.budget-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.budget-grid > div { display: grid; gap: 4px; padding: 12px; background: var(--card-2); border-radius: 10px; }
+.budget-grid span, .budget-grid small { color: var(--ink-3); font-size: 12px; }
+.budget-grid b { font-size: 21px; }
+.budget-total { display: flex; align-items: baseline; gap: 8px; border-top: 1px solid var(--line); padding-top: 14px; }
+.budget-total b { color: var(--accent-deep); font-size: 26px; }
+.budget-total span { margin-left: auto; color: var(--ink-3); }
+.quality ul { margin-bottom: 0; }
+.quality-warning { color: var(--warn); }
+.edit-buttons { display: flex; gap: 6px; margin: 8px 0; }
+.edit-buttons button { border: 1px solid var(--line); color: var(--ink-2); background: var(--card-2); border-radius: 7px; padding: 3px 9px; cursor: pointer; }
+.edit-buttons select { max-width: 210px; border: 1px solid var(--line); background: var(--card); border-radius: 7px; color: var(--ink-2); }
+.export-sheet { position: fixed; left: -10000px; top: 0; width: 800px; padding: 36px; color: #1d2b25; background: #fffdf8; }
+.export-sheet li { margin: 7px 0; }
+@media (max-width: 760px) { .budget-grid { grid-template-columns: repeat(2, 1fr); } }
+@media print {
+  body { background: #fff; padding: 0; }
+  .topbar, .foot, .plan-actions, #edit-note, #map-block, .edit-buttons { display: none !important; }
+  main { padding: 0; max-width: none; }
+  .panel { box-shadow: none; border: 0; padding: 12px 0; break-inside: avoid; }
+  .detail { max-height: none; opacity: 1; }
+  .stop-row .thumb, .detail figure { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
   *, *::before, *::after {
     animation-duration: .001ms !important;
     animation-iteration-count: 1 !important;

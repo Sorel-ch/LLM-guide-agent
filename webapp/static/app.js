@@ -324,6 +324,13 @@ function photoBlock(it) {
 
 function stopCard(it, i = 0) {
   const stay = stayMinutes(it);
+  const editButtons = EDIT.enabled && it.item_id ? `<div class="edit-buttons">
+    <button type="button" data-edit="up" data-id="${esc(it.item_id)}">上移</button>
+    <button type="button" data-edit="down" data-id="${esc(it.item_id)}">下移</button>
+    <button type="button" data-edit="remove" data-id="${esc(it.item_id)}">删除</button>
+    ${(PLAN.edit_candidates || []).some(c => c.type === it.type && c.name !== it.name)
+      ? `<select data-replace="${esc(it.item_id)}"><option value="">替换候选…</option>${PLAN.edit_candidates.filter(c => c.type === it.type && c.name !== it.name).map(c => `<option value="${esc(c.candidate_id)}">${esc(c.name)}</option>`).join("")}</select>` : ""}
+  </div>` : "";
   const warn = !it.verified
     ? `<p class="stop-warning">待核实 · ${it.cost == null ? "金额没取到" : "依据为本次现查"}（来源 ${esc(it.source || "none")}）</p>`
     : "";
@@ -343,6 +350,7 @@ function stopCard(it, i = 0) {
         ${stay ? `<span class="stay">建议停留 ${(stay / 60).toFixed(1)} 小时</span>` : ""}
       </div>
       <h4 class="stop-name">${esc(it.name)}</h4>
+      ${editButtons}
       <div class="stop-row">${thumb}
         ${it.tip ? `<p class="stop-summary">${esc(it.tip)}</p>` : ""}
       </div>
@@ -375,15 +383,101 @@ function transferPill(it, i = 0) {
   </div>`;
 }
 
+const EDIT = { enabled: false, original: null, operations: [] };
+
+function renderBudget(p) {
+  const box = $("#budget"), b = p.budget_summary;
+  box.hidden = !b;
+  if (!b) return;
+  const names = { attractions: "景点", meals: "餐饮", lodging: "住宿", local_transport: "市内交通", intercity_transport: "城际交通" };
+  box.innerHTML = `<h2>预算明细 <small>已知费用，不含待核实项</small></h2>
+    <div class="budget-grid">${Object.entries(b.categories || {}).map(([k, v]) =>
+      `<div><span>${names[k] || k}</span><b>¥${esc(v.known_subtotal)}</b>
+       <small>${v.unknown_item_ids.length ? `${v.unknown_item_ids.length} 项待询价` : "金额齐全"}</small></div>`).join("")}</div>
+    <p class="budget-total">已知至少 <b>¥${esc(b.known_total)}</b> / 预算 ¥${esc(b.target || 0)}
+    <span>另有 ${(b.unknown_item_ids || []).length} 项待询价</span></p>
+    ${b.over_budget ? '<p class="quality-warning">已知费用已超过预算；待核实费用尚未计入。</p>' : ""}`;
+}
+
+function renderQuality(p) {
+  const box = $("#quality"), issues = (p.quality || {}).issues || [];
+  box.hidden = !issues.length;
+  if (issues.length) box.innerHTML = `<h2>行程校验</h2><ul>${issues.map(i =>
+    `<li><b>${i.severity === "error" ? "需处理" : "提示"}</b> ${esc(i.message)}</li>`).join("")}</ul>`;
+}
+
+function setEditMode(enabled) {
+  EDIT.enabled = enabled;
+  EDIT.operations = [];
+  $("#edit-plan").hidden = enabled;
+  $("#save-plan").hidden = !enabled;
+  $("#cancel-edit").hidden = !enabled;
+  $("#edit-note").hidden = !enabled;
+  if (enabled) EDIT.original = JSON.parse(JSON.stringify(PLAN));
+  else if (EDIT.original) renderPlan(EDIT.original);
+}
+
+async function saveRevision() {
+  if (!EDIT.operations.length) { setEditMode(false); return; }
+  const p = await api(`/api/plans/${encodeURIComponent(PLAN.plan_id)}/revisions`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ base_revision: PLAN.revision || 0, operations: EDIT.operations }),
+  });
+  EDIT.enabled = false;
+  EDIT.original = null;
+  renderPlan(p);
+  setEditMode(false);
+}
+
+function bindPlanActions() {
+  $("#edit-plan").addEventListener("click", () => { setEditMode(true); renderPlan(PLAN); });
+  $("#cancel-edit").addEventListener("click", () => setEditMode(false));
+  $("#days").addEventListener("change", (event) => {
+    const select = event.target.closest("[data-replace]");
+    if (!select || !EDIT.enabled || !select.value) return;
+    const candidate = PLAN.edit_candidates.find(c => c.candidate_id === select.value);
+    EDIT.operations.push({ op: "replace_item", item_id: select.dataset.replace, candidate });
+    PLAN.days.forEach(d => d.timeline.forEach(item => {
+      if (item.item_id === select.dataset.replace) Object.assign(item, candidate);
+    }));
+    renderPlan(PLAN);
+  });
+  $("#save-plan").addEventListener("click", () => saveRevision().catch(fail));
+  $("#days").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-edit]");
+    if (!button || !EDIT.enabled) return;
+    event.stopPropagation();
+    const id = button.dataset.id;
+    if (button.dataset.edit === "remove") {
+      EDIT.operations.push({ op: "remove_item", item_id: id });
+      PLAN.days.forEach(d => { d.timeline = d.timeline.filter(i => i.item_id !== id); });
+    } else {
+      EDIT.operations.push({ op: "move_item", item_id: id, direction: button.dataset.edit });
+      for (const d of PLAN.days) {
+        const idx = d.timeline.findIndex(i => i.item_id === id);
+        const to = idx + (button.dataset.edit === "up" ? -1 : 1);
+        if (idx >= 0 && to >= 0 && to < d.timeline.length) {
+          [d.timeline[idx], d.timeline[to]] = [d.timeline[to], d.timeline[idx]];
+          break;
+        }
+      }
+    }
+    renderPlan(PLAN);
+  });
+}
+
 function renderPlan(p) {
-  // 降级载荷里没有 days/destination/日期这些字段，标题与摘要要能退到 question，别打出 undefined。
   const dash = (v) => (v == null || v === "" ? "—" : v);
   PLAN = p;
-  p.items = [];
-  (p.days || []).forEach((d) => d.timeline.forEach((it) => {
-    it.__i = p.items.length;
-    p.items.push(it);
+  const view = { ...p, items: [] };
+  view.days = (p.days || []).map(d => ({ ...d, timeline: d.timeline.map(it => ({ ...it })) }));
+  view.days.forEach((d) => d.timeline.forEach((it) => {
+    it.__i = view.items.length;
+    view.items.push(it);
   }));
+  VIEW_MODEL = view;
+  renderBudget(p);
+  renderQuality(p);
   $("#plan-title").textContent = p.destination
     ? `${p.destination} ${p.days_count || ""} 日`.trim()
     : String(p.question || "方案").slice(0, 40);
@@ -405,7 +499,7 @@ function renderPlan(p) {
   const wx = {};
   (p.weather_forecast || []).forEach((w) => { wx[w.date] = w; });
 
-  $("#days").innerHTML = (p.days || []).map((d) => {
+  $("#days").innerHTML = view.days.map((d) => {
     const stops = d.timeline.filter((i) => i.type !== "transit");
     const w = wx[d.date];
     return `<section class="day">
@@ -477,7 +571,7 @@ function renderPlan(p) {
     box.classList.toggle("collapsed", collapse);
     $("#map-toggle").textContent = collapse ? "展开" : "收起";
     $("#map-toggle").setAttribute("aria-expanded", String(!collapse));
-    drawMap(p);                       // 地图已就绪就直接画
+    drawMap(view);                       // 地图已就绪就直接画
     if (!MAP.tried) ensureMap();      // 首次进入详情才拉 loader.js，别一开页就打外网
   }
 }
@@ -487,7 +581,8 @@ function renderPlan(p) {
 const MAP = { AMap: null, map: null, info: null, overlays: [], fitTargets: [],
   markerByIdx: {}, lineByIdx: {}, tried: false, ok: false };
 const FIT_MAX_KM = 20;   // 离质心超过这个距离的站点不参与初始视野
-let PLAN = null;   // 卡片与 marker 靠条目下标对上
+let PLAN = null;   // 原始方案，导出/保存用；地图只读 VIEW_MODEL，不向原对象写字段。
+let VIEW_MODEL = null;
 
 function injectScript(src) {
   return new Promise((resolve, reject) => {
@@ -535,7 +630,7 @@ async function ensureMap() {
     MAP.info = new AMap.InfoWindow({ offset: new AMap.Pixel(0, -30) });
     MAP.ok = true;
     mapNote("marker 出自条目 location，折线出自本次实测 path");
-    if (PLAN) drawMap(PLAN);
+    if (VIEW_MODEL) drawMap(VIEW_MODEL);
     return true;
   } catch (err) {
     mapNote(`地图没起来：${err.message}（不影响下面的时间线）`);
@@ -553,13 +648,13 @@ function infoHtml(it) {
 }
 
 function focusItem(idx) {
-  if (!MAP.ok || !PLAN) return;
+  if (!MAP.ok || !VIEW_MODEL) return;
   const m = MAP.markerByIdx[idx];
   const line = MAP.lineByIdx[idx];
   if (m) {
     const pos = m.getPosition();
     MAP.map.panTo(pos);
-    MAP.info.setContent(infoHtml(PLAN.items[idx]));
+    MAP.info.setContent(infoHtml(VIEW_MODEL.items[idx]));
     MAP.info.open(MAP.map, pos);
   } else if (line) {
     MAP.map.setFitView([line], false, [50, 50, 50, 50]);
@@ -720,5 +815,6 @@ document.querySelectorAll(".tab").forEach((b) => {
   b.addEventListener("click", () => (b.dataset.view === "history" ? loadHistory() : show("input")));
 });
 $(".back").addEventListener("click", () => show("input"));
+bindPlanActions();
 
 show("input");

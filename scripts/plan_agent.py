@@ -1988,7 +1988,7 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
                          "timeline": items, "sights": day_sights(items),
                          **route_quality(items)})
 
-    return {
+    raw_plan = {
         "plan_id": plan_id,
         "question": question,
         "destination": needs.get("destination_city"),
@@ -2008,6 +2008,9 @@ def build_plan_json(needs: dict, question: str, text: str, ext: dict, pages: lis
         "days": out_days,
         "degraded": False,
     }
+    # 新契约只扩展交付字段，旧 timeline/地图契约不变；历史文件不被回写。
+    from planning.budget import enrich_plan
+    return enrich_plan(raw_plan)
 
 
 def resolve_start_date(question_date: str | None, needs: dict) -> str:
@@ -2028,7 +2031,7 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
              facts: list[str] | None = None, json_mode: bool = False,
              skip_llm: bool = False, dry_run: bool = False, quiet: bool = False,
              turns: list[str] | None = None, clarify_first: bool = True,
-             on_stage=None) -> dict:
+             on_stage=None, pipeline: str | None = None) -> dict:
     """阶段 A→F 的编排。CLI 与 webapp 共用这一份，调用方不要再复制一遍流程。
 
     needs 传入即跳过阶段 A（省 1 次 LLM，用于分段计时与调试）。
@@ -2038,6 +2041,7 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
     json_mode=True 时阶段 C 换成 SYSTEM_PLAN_JSON，并多返回一个 plan（final_plan dict）。
     on_stage(一行进度文本) 给 web 的轮询用，每个阶段结束时回调一次。
     """
+    pipeline = pipeline or os.getenv("TRAVEL_PIPELINE", "curated")
     t_start = time.perf_counter()
     trace: list[str] = []
     llm_calls = 0
@@ -2052,6 +2056,9 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
         say("   " + line)
         if on_stage:
             try:
+                on_stage({"sequence": len(trace), "stage": line.split(maxsplit=1)[0],
+                          "state": "completed", "message": line})
+            except TypeError:
                 on_stage(line)
             except Exception as exc:   # 进度回调是附加信息，挂了不能把规划带崩
                 say(f"   [on_stage 异常 {type(exc).__name__}: {exc}]")
@@ -2108,6 +2115,19 @@ def run_plan(question: str, *, date: str | None = None, needs: dict | None = Non
                 "final": "", "gap": None, "trace": trace, "llm_calls": llm_calls,
                 "external_calls": ext["external_count"],
                 "seconds": time.perf_counter() - t_start}
+
+    if pipeline == "curated" and json_mode:
+        from planning.orchestrator import run_curated_plan
+        plan = run_curated_plan(sys.modules[__name__], needs, question, ext, pages, wiki_text,
+                                start_date, thinking, quiet, max_external, mark)
+        plan["sources"]["seconds"] = round(time.perf_counter() - t_start, 1)
+        return {"needs": needs, "start_date": start_date, "wiki_pages": pages,
+                "wiki_text": wiki_text, "ext": ext, "context": context, "draft": "",
+                "final": json.dumps({"days": plan.get("days", [])}, ensure_ascii=False),
+                "gap": None, "trace": trace, "llm_calls": 1, "external_calls": ext["external_count"],
+                "seconds": time.perf_counter() - t_start, "plan": plan}
+    if pipeline != "legacy":
+        raise ValueError(f"未知规划管线：{pipeline}")
 
     system = SYSTEM_PLAN_JSON if json_mode else SYSTEM_PLAN
     llm2 = llm([{"role": "system", "content": system},
@@ -2248,6 +2268,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="顺序管线规划客户端（含补查轮）")
     ap.add_argument("question")
     ap.add_argument("--date")
+    ap.add_argument("--pipeline", choices=["legacy", "curated"], default=None,
+                    help="规划内核：legacy 为对照；curated 为候选策展 + 确定性排程")
     ap.add_argument("--thinking", default="off", choices=["off", "low", "on"])
     ap.add_argument("--needs", help="跳过抽取，直接给需求 JSON（用于分段计时与调试）")
     ap.add_argument("--skip-llm", action="store_true", help="只做阶段 A/B，把注入 prompt 的上下文写出来")
@@ -2316,6 +2338,7 @@ def main() -> int:
             skip_llm=args.skip_llm,
             turns=turns,
             clarify_first=not args.no_clarify,
+            pipeline=args.pipeline,
         )
         if res.get("stage") != "clarify":
             break
