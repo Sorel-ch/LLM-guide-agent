@@ -173,7 +173,9 @@ def build_native_plan(task, needs, sandbox: Sandbox) -> tuple[dict, dict]:
         needs=None,
         clarify_first=False,
         json_mode=True,
-        max_extra=0,
+        # 打开补查轮：跑产品完整的“初稿 → 补查 → 终稿”，最多 4 次 LLM；
+        # 补查条数由剩余外部额度限制（max_external=32）。
+        max_extra=-1,
         max_external=32,
         quiet=True,
     )
