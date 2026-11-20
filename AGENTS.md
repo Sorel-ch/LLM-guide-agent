@@ -16,7 +16,8 @@
 |---|---|---|
 | 本文件 | 只读边界、管线内部约束与实测结论 | 维护约束的权威 |
 | `README.md` | 项目形态、快速开始、人工维护脚本用法 | 面向人 |
-| `docs/frontend-plan.md` | 网页版 API 契约与字段 | 第 4 节旧配色/布局已被 2026-10-20 重构取代，视觉以 `webapp/static/style.css` 为准 |
+| `docs/refactor-v2.md` | v2 策展、预算、质量、修订与导出契约 | 当前 Web/API 行为以此为准 |
+| `docs/frontend-plan.md` | v1 网页建设记录与旧实测校准 | 历史文档；现行契约见上条，视觉以 `webapp/static/style.css` 为准 |
 | `schema/schema.md` | wiki 页面格式、快照命名、互链 | **人工**维护 wiki 时的契约 |
 | `session-notes/` | 逐轮交接纪要 | 已 gitignore，不入库 |
 
@@ -24,7 +25,8 @@
 本文件里的实测数字（2 并发、住宿 `business.cost` 全空、farthest-point 种子、折返比阈值…）
 是**已验证的结论**，不是待复核的假设；要推翻先给出新的实测证据，别凭直觉"优化"掉。
 
-**验证阶梯**——仓库没有测试套件，验收靠跑管线看产物：
+**验证阶梯**——先跑 `scripts/test_planning_models.py`、`test_curated_pipeline.py`、`test_itinerary.py`
+的零网络回归，再按下述管线看产物。现有脚本只覆盖契约、策展和修订，不代替真实多城验收：
 
 1. `--offline`：0 次外部调用、0 次 LLM，只看将发出的调用清单。改取数面先跑这个。
    **它不抽题**：不带 `--needs` 时用固定夹具（绍兴 1 天），要看某一题的取数面必须配
@@ -32,6 +34,7 @@
    请求没带 `needs` 时它仍会花 1 次 LLM 抽需求。
 2. `--skip-llm`：跑到阶段 B，把注入模型的上下文写 `.cache/plan_run.md`。
    台账渲染配额、住宿有没有被提到前面、【建议顺序】分天是否合理，都在这里看。
+   v2 这一阶段尚未单独输出策展输入/分天结果；需要时应补可观测产物，别靠真实 LLM 反复试。
 3. 真跑 `--json`：出 `final_plan` 并落 `.cache/plans/<plan_id>.json`。
    **跑之前先翻 `.cache/plans/` 里的既有方案能不能复用**，别为同一题重复烧额度。
 
@@ -40,14 +43,17 @@ photo/location/path / 景点=x/x/x / 折返比`。逐条验收口径：
 
 - 折线数 **`md5(path)` 去重后的条数**并看 `path_status`（`measured`/`missing`/`cross_city`），
   不能数"有 path 的条目"——一条实测腿会被多个交通段认领。
-- 补查有没有真发，看 `plan.sources.gap_asks`；不要靠重跑判断"没查 / 查不到"。
+- 补查有没有真发：legacy 看 `plan.sources.gap_asks`，v2 看工具执行记录；不要靠重跑判断"没查 / 查不到"。
+- v2 还要看 `quality.issues`、`budget_summary.known_total/unknown_item_ids`、`sources.repairs`；
+  `degraded=false` 只表示结构可解析，不表示时间、餐宿与费用语义都正确。
 - `external_calls` 大于 `max_external`（web 入口 32）是正常的：终稿补腿走独立额度。
 - `detour_ratio > 1.25` 会写 `route_note`，它是指标不是否决门。
-- 前端改动要起服务在浏览器里真走一遍：澄清 → 规划 → 方案页 → 历史页。
+- 前端改动要起服务在浏览器里真走一遍：澄清 → 规划 → 方案页 → 编辑 → 保存修订 → 导出 → 历史页。
   改完静态资源 bump `index.html` 里 `style.css`/`app.js` 的 `?v=`，否则浏览器继续吃缓存。
 
 **落盘与提交**：可写 `scripts/`、`webapp/`、`mcp/`、`docs/`、`schema/` 与两份根文档；
 草稿和产物写 `.cache/`，交接写 `session-notes/`；`wiki/`、`raw/` 一律不碰。
+`.claude/` 是当前未跟踪的本机代理/预览配置，默认不提交；如需入库，先单独审阅并纳入本文件文档地图。
 按既有约定**一批改动验收通过就单独提交**，不要把多批混进一个 commit；
 提交信息用中文、说清为什么（照 `git log` 的风格）。
 
@@ -64,6 +70,20 @@ photo/location/path / 景点=x/x/x / 折返比`。逐条验收口径：
 **不要往 `.venv` 装 `pyvrp`**：它的 Windows wheel 只覆盖 3.11+。约束求解的实跑在独立工作区
 `E:\code\pyvrp-trip-demo`（自带 3.12 venv），产物不回写本仓库。
 搭建步骤与中文输出注意见下面「工具脚本」「Windows 控制台注意」两节。
+
+## 子代理委派（flash-worker）
+
+`.claude/agents/flash-worker.md` 是执行型子代理（flash 模型，便宜、适合多步骤但不需要判断的活）。
+维护会话默认把下面这些**交给它**，自己只读它的结论，不再一条条手跑：
+
+- 一次要读 3 个以上文件，或同一关键词要在多个目录里扫：给它明确范围，让它回报"路径 + 关键行 + 结论"。
+- 验证阶梯里的机械步骤：跑 `--offline` / `--skip-llm` / 测试脚本，把 CLI 汇总行与报错原样贴回。
+- 已经拆好的改代码步骤：文件、改法、验收命令都明确，不需要再权衡。
+- 大段产物整理：`.cache/` 日志、命令输出压成关键行清单。
+
+留在主会话：需求澄清与取舍、跨模块排错、方案与文档撰写、需要完整上下文的判断，
+以及所有提交与对外动作。子代理不提交、不写 `wiki/`/`raw/`；它的回报只是素材，
+最终仍按上面的验收口径复核。
 
 ## 只读边界（硬约束）
 
@@ -131,13 +151,22 @@ Query **没有写库分支**：不建页、不改页、不动 `index.md`/`log.md
 
 默认 `run_plan()` 走 `scripts/planning/orchestrator.py`：A 澄清/B1 wiki/B2 共享取数保持不变，
 随后只让 LLM 从真实候选 ID 做景点语义策展，代码负责分天、餐宿、相邻路段、排程、营业冲突、预算与校验。
-带 `needs` 时正常为 1 次 LLM；`--pipeline legacy` 只作旧行为对照。
+带 `needs` 时正常为 1 次 LLM（另有澄清则再加 1 次）；`--pipeline legacy` 只作旧行为对照。
+curated 目前只在 `--json` 下生效；不带 `--json` 的 CLI 真跑须显式 `--pipeline legacy`。
+`--offline` 目前也仍打印 legacy 的 C/D/E 文案，只代表旧取数清单预览，不是 curated 的实际阶段。
+**已知计数偏差**：curated 无 `needs` 时产物 `sources.llm_calls` 仍写 1，未包含澄清那次；
+修代码前不能拿这个字段做严格成本验收。
 本节以下“快速管线”中 C/D/E 全文生成、模型缺口清单等描述是 legacy 的实现与历史实测约束，
 不能误当成 v2 还在执行的阶段；新模块职责、编辑/导出与验收记录见 `docs/refactor-v2.md`。
 
 编辑修订写 `.cache/revisions/`，原始 `.cache/plans/` 历史不覆盖；编辑默认 0 LLM/0 外部调用，
 新顺序不得冒用旧实测折线。预算只合计有证据的金额，unknown 不等于免费；
 策展不能创建候选 ID，网页金额归属有歧义时仍保持待核实。
+修订写 `.cache/revisions/<plan_id>/<n>.json` 与 `latest.json`；过期 `base_revision` 必须 409，
+详情默认读最新修订，`/revisions/0` 永远保留原方案。替换候选项由前端从 `edit_candidates` 提供；
+**后端目前只校验候选结构，没有校验其确属该快照**，
+调用 API 时不能把它当成服务端白名单。移动/替换会把旧实测腿标 missing，删除条目尚不会；
+编辑不会自动重排时间或补测新腿。文档不得写成已实现这些未完成能力。
 
 ## 快速管线（scripts/plan_agent.py，legacy 对照）
 
@@ -268,7 +297,7 @@ Query **没有写库分支**：不建页、不改页、不动 `index.md`/`log.md
 ## 网页版（webapp/）
 
 `webapp/server.py` 是薄后端（FastAPI，只跑在 `127.0.0.1:8300`，**无鉴权，不要挂公网**），
-只做三件事：跑管线出 JSON、下发地图 JS key、托管 `webapp/static/`。
+只做四件事：跑管线出 JSON、保存/读取本地修订、下发地图 JS key、托管 `webapp/static/`。
 规划逻辑一律 `import plan_agent` 复用 `run_plan()`，**不要在 webapp 里另写一份流程**。
 
 ```
@@ -281,15 +310,23 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --
   澄清齐了要带 `needs`+`turns` 回来，否则阶段 A 会又抽一遍）、
   `GET /api/job/running`（等待期间看阶段）、`GET /api/plan/<job_id>/status`、
   `GET /api/config`（`AMAP_JS_KEY`/`AMAP_JS_SECURITY_CODE`，缺失返回空串让前端隐藏地图块）、
-  `GET /api/plans`（读 `.cache/plans/` 最近 20 条）、`GET /api/plans/<plan_id>`。
+  `GET /api/plans`（读 `.cache/plans/` 最近 20 条原始方案）、
+  `GET /api/plans/<plan_id>`（内存适配预算/质量；有修订时返回最新）、
+  `GET /api/plan/<job_id>`（已完成任务结果，进程重启后不保留）、
+  `PUT /api/plans/<plan_id>/revisions`（`base_revision + operations` 新增修订，冲突 409）、
+  `GET /api/plans/<plan_id>/revisions/<n>`（指定修订，`0` 是原始版本）。
 - 前端首页是**行程海报 + 对话卡**的双栏：左栏讲清规划依据，右栏是气泡流与输入区；
   顶部槽位条实时显示五项需求（目的地/起点/时间/预算/偏好）的已填、待确认、不限状态。
   `ready=false` 期间"开始规划"按钮一直禁用，追问的可点短答案来自 `questions[].options`。
-- 方案页是"行程单"：封面、地图、逐日时间线、可展开的条目详情与来源清单；
-  历史页平铺最近 20 条。
+- 方案页是"行程单"：封面、地图、逐日时间线、分类预算、质量提示、可展开详情与来源清单；
+  支持本地修订编辑和 JSON/文字 PNG/打印 PDF；历史页平铺最近 20 条原始方案。
+- `POST /api/plan` 仍阻塞返回，进度轮询新增 `events`（`sequence/stage/state/message`），
+  不是 SSE/WebSocket、游标增量事件或取消任务；240 秒超时不会取消后台线程。
+- 结构化修改 bump `index.html` 的 `style.css`/`app.js`/`export.js` 三个 `?v=`，避免吃旧缓存。
 - 每次跑成功的方案落 `.cache/plans/<plan_id>.json`（gitignore 内）。
 - **web 走的是 Query 路径，没有写库分支**：不动 `wiki/`、`raw/`、`index.md`、`log.md`。
-- API 契约与逐条实测校准记在 `docs/frontend-plan.md`（第 3/4/5/7 节），改前端前先读它；
+- API 契约以 `docs/refactor-v2.md` 为准；`docs/frontend-plan.md` 是 v1 建设记录与旧实测，
+  其中 MAX_EXTERNAL_WEB=24、只展示不编辑、A~F 全文生成与 M1~M5 验收均为历史，不作为现行约定。
   2026-10-20 的视觉重构已替换该文档第 4 节的旧配色与布局，以 `webapp/static/style.css` 为准。
 
 ## Lint（只读核查）

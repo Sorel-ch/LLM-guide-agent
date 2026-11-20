@@ -8,7 +8,7 @@
 - **网页版是主入口**：多轮对话问清五项（目的地 / 起点 / 时间 / 预算 / 偏好）→ 候选策展与确定性排程 →
   地图 + 逐日时间线 + 分类预算 + 修订编辑 + 导出。见 [webapp/](webapp/) 与 [v2 重构说明](docs/refactor-v2.md)。
 - **命令行可直接跑管线**（[scripts/plan_agent.py](scripts/plan_agent.py)）：支持交互追问、
-  离线预演、`--json` 结构化输出，单题通常 20–40 秒。
+  离线预演、`--json` 结构化输出；耗时取决于取数、模型与缓存，不能按旧样本作固定承诺。
 - **不依赖 Cline 或其他外部 agent 客户端**：澄清、取数顺序、模型调用、结果落盘都在本仓库内完成。
   `.mcp.json` 里的 MCP server 现在是可选的对外集成面，不是运行前提。
 - **`wiki/` 与 `raw/` 对 agent 只读**：规划时只查不改。知识库由人工维护并提交，
@@ -21,13 +21,15 @@
 浏览器 (webapp/static/) ──HTTP──> 薄后端 (webapp/server.py, FastAPI)
                                       │ import run_plan()
                                       v
-                            scripts/plan_agent.py
-                              ├─ wiki/         只读背景知识（过期项现查）
-                              ├─ travel MCP   高德 / 秘塔实时数据
-                              └─ LLM          澄清、初稿、补查、终稿
-                                      │
+                            scripts/plan_agent.py（CLI / 兼容入口）
                                       v
-                            .cache/plans/<plan_id>.json
+                            scripts/planning/（v2 受控策展）
+                              ├─ A 澄清 → B1 只读 wiki → B2 共享取数
+                              ├─ 景点策展（小输出 LLM，仅引用真实候选）
+                              └─ 分天 / 餐宿 / 路线 / 时间 / 预算 / 校验（代码）
+                                      │
+                                      ├─ .cache/plans/<plan_id>.json（原始方案）
+                                      └─ .cache/revisions/<plan_id>/（编辑修订）
 ```
 
 知识库只是"背景知识 + 可追溯来源"：票价、营业时间、坐标这类会过期的事实，规划时一律以
@@ -38,14 +40,16 @@
 
 | 路径 | 作用 |
 |---|---|
-| `scripts/plan_agent.py` | 固定顺序规划管线（澄清 → 读库 → 取数 → 初稿 → 补查 → 终稿） |
+| `scripts/plan_agent.py` | CLI、共享工具/地理内核与 `legacy` 对照入口 |
+| `scripts/planning/` | v2 策展、排程、预算、语义校验与修订 |
+| `scripts/audit_plans.py` | 既有方案只读质量审计，报告写 `.cache/audits/` |
 | `webapp/` | FastAPI 薄后端 + 无构建单页前端 |
 | `mcp/travel_mcp.py` | 高德 / 秘塔工具（MCP stdio） |
 | `mcp/wiki_mcp.py` | 只读 wiki 查询工具（MCP stdio） |
 | `wiki/` | 知识页面（城市 / POI / 路线），**只读** |
 | `raw/` | 不可变资料快照，**只增不改不删** |
 | `schema/` | wiki 页面格式与命名契约 |
-| `docs/frontend-plan.md` | 网页版 API 契约与 v1 建设记录 |
+| `docs/frontend-plan.md` | v1 网页建设记录；现行契约以 `docs/refactor-v2.md` 为准 |
 | `session-notes/` | 本地交接纪要（已 gitignore，不入库） |
 
 ## 快速开始
@@ -79,10 +83,13 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe -m uvicorn webapp.server:app --
 - "离线预演"只列外部调用清单：**0 次外部请求**（请求没带 `needs` 时仍会花 1 次 LLM 抽需求）。
 - 界面是暖纸 + 陶土红的行程单风格，含分批入场、详情展开与地图折线动效；
   系统开启"减少动态效果"时自动降级。
-- 规划结果包含封面、地图、逐日时间线、可展开的条目详情与来源清单；
+- 规划结果包含封面、地图、逐日时间线、可展开的条目详情、分类预算、质量提示与来源清单；
   跑成功的方案落在 `.cache/plans/`，历史页可回看最近 20 条。
-- 网页走 Query 路径，不写 `wiki/`、`raw/`；接口与字段契约见
-  [docs/frontend-plan.md](docs/frontend-plan.md)。
+- 网页编辑支持移动、删除和候选替换，保存为 `.cache/revisions/` 新修订；
+  时间/备注操作目前只在 API 提供。编辑不调用 LLM 或外部接口，不自动重排或补测路线。
+- 支持 JSON、文字 PNG 与浏览器打印 PDF；PNG 不含动态地图和跨域照片。
+- 网页走 Query 路径，不写 `wiki/`、`raw/`；现行接口与字段契约见
+  [docs/refactor-v2.md](docs/refactor-v2.md)，[docs/frontend-plan.md](docs/frontend-plan.md) 保留 v1 记录。
 
 ### 3. 命令行
 
@@ -98,8 +105,14 @@ E:\code\LLM-guide-agent\.venv\Scripts\python.exe scripts/plan_agent.py "从杭�
 | `--skip-llm` | 只跑到取数阶段，检查注入模型的上下文 |
 | `--json` | 出结构化 `final_plan` 并落 `.cache/plans/` |
 | `--needs '<JSON>'` | 跳过抽取，直接给需求 |
-| `--pipeline curated` | 默认：一次候选策展 + 代码排程/校验 |
-| `--pipeline legacy` | 旧全文生成管线，仅作对照 |
+| `--pipeline curated` | 默认策展内核，**必须搭配 `--json`**；不带 JSON 的真实运行需显式 `--pipeline legacy` |
+| `--pipeline legacy` | 旧全文生成管线，支持 Markdown/JSON，供对照 |
+| `--max-external 32` | 主取数软上限；`0` 为 CLI 默认不限，终稿补腿走独立额度 |
+| `--max-extra N` | legacy 补查上限；`-1` 不限、`0` 关闭；curated 不使用该阶段 |
+| `--thinking off|low|on` | 模型思考档位，默认 `off` |
+| `--fact '事实'` | 可重复的人工核实补充事实，供取数/旧管线使用 |
+| `--out <路径>` | 规划报告输出路径，默认 `.cache/plan_run.md` |
+| `--no-prompt` | 信息不全时打印问题并以退出码 3 结束，不交互追问 |
 | `--answer '…'` | 回答上一轮追问（可重复）；脚本里配 `--no-prompt` 使用 |
 | `--no-clarify` | 关掉追问闸门，按默认值直接规划 |
 
